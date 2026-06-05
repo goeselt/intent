@@ -52,5 +52,5 @@ outputs:
     description: 'Floating minor tag, for example v1.2 or my-tool/v1.2.'
 
 runs:
-  using: node20
+  using: node24
   main: index.js

@@ -2,8 +2,8 @@
 
 ## Design
 
-Pure Node.js standard library -- no runtime dependencies, no build step. The entry point `index.js` is committed
-as-is and referenced directly by `action.yml` (`runs.using: node20`).
+Pure Node.js standard library -- no runtime dependencies, no build step. The entry point `index.js` is committed as-is
+and referenced directly by `action.yml` (`runs.using: node24`).
 
 | File         | Responsibility                                                      |
 | ------------ | ------------------------------------------------------------------- |
@@ -12,18 +12,15 @@ as-is and referenced directly by `action.yml` (`runs.using: node20`).
 | `github.js`  | GitHub REST calls: list PR commits, upsert comment.                 |
 | `index.js`   | Event routing, input reading, Git command wiring, output writing.   |
 
-`pull_request` / `pull_request_target` events run PR validation only; all other events run version resolution only.
-Push mode requires `actions/checkout` with `fetch-depth: 0` -- shallow clones may not contain the tags and commit
-history needed to resolve the next version.
+`pull_request` events run PR validation only; all other events run version resolution only. Push mode requires
+`actions/checkout` with `fetch-depth: 0` -- shallow clones may not contain the tags and commit history needed to resolve
+the next version.
 
 ## Development Setup
 
-- Node.js 20
-- npm
+- Node.js 20 or later
 
-```bash
-npm install
-```
+No dependencies to install.
 
 ## Local Verification
 

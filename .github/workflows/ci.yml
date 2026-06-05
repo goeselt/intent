@@ -16,21 +16,27 @@ defaults:
     shell: bash
 
 jobs:
-  test:
-    name: Test
+  ci:
+    name: CI
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
+      - name: Validate PR Title
+        uses: goeselt/bumpkin@b7b8dc09745b98e0fc23e11e1349bf63f470c65c # v1.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set Up Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: '20'
-
       - name: Run Tests
         run: npm test
+
+      - name: Pedant
+        uses: goeselt/pedant@1ba1298d0fb09c9a83e161686d6fdd0029ca8897 # v1.1.0
