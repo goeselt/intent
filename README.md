@@ -36,6 +36,13 @@ Title and commit validation always run and set the job's exit code. If the token
 comment otherwise can't be posted), Intent does not fail the job for that alone -- it emits a `::warning` annotation and
 continues, so validation results stay visible even without the PR comment.
 
+For PRs from forks, GitHub always issues a read-only `GITHUB_TOKEN` on `pull_request`, regardless of the `permissions:`
+block above -- so the comment step degrades to the warning just described for every fork PR. To post comments on fork
+PRs, trigger on `pull_request_target` instead, which runs with the base repository's permissions. Review GitHub's
+[security guidance for `pull_request_target`](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)
+first: the workflow then runs with write access against untrusted PR code, so never check out or execute the fork's
+contents in that job.
+
 **2. Version Resolution** -- on every push to main, reads Git tags and commit history to decide whether a release is
 needed and what the next version should be.
 
