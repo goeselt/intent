@@ -1,11 +1,15 @@
 ---
-name: 'Bumpkin'
+name: 'Intent Release'
 description: 'GitHub Action that validates PR release intent and resolves the next semantic version from Conventional Commit history.'
 author: 'goeselt'
 
+branding:
+  icon: git-pull-request
+  color: green
+
 inputs:
   github-token:
-    description: 'GitHub token used to list PR commits and post the PR comment.'
+    description: 'GitHub token required to list PR commits and post the PR comment.'
     required: false
     default: ${{ github.token }}
   pr-comment:

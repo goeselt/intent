@@ -1,14 +1,15 @@
-# Bumpkin
+# Intent
 
 GitHub Action that validates pull request release intent and resolves the next semantic version from
-[Conventional Commit](https://www.conventionalcommits.org/) history.
+[Conventional Commit](https://www.conventionalcommits.org/) history. Use it as
+[`goeselt/intent`](https://github.com/goeselt/intent).
 
 Designed for squash-merge workflows: the PR title is the release signal, and the default-branch commit history drives
 the concrete version.
 
 ## Quick Start
 
-Bumpkin covers two complementary jobs. Use both together for a complete release pipeline.
+Intent covers two complementary jobs. Use both together for a complete release pipeline.
 
 **1. PR Guard** -- validates the PR title and checks that no commit requires a higher bump than the title promises.
 Posts an explanatory comment on the PR.
@@ -26,10 +27,21 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: goeselt/bumpkin@v1
+      - uses: goeselt/intent@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+Title and commit validation always run and set the job's exit code. If the token lacks `pull-requests: write` (or the
+comment otherwise can't be posted), Intent does not fail the job for that alone -- it emits a `::warning` annotation and
+continues, so validation results stay visible even without the PR comment.
+
+For PRs from forks, GitHub always issues a read-only `GITHUB_TOKEN` on `pull_request`, regardless of the `permissions:`
+block above -- so the comment step degrades to the warning just described for every fork PR. To post comments on fork
+PRs, trigger on `pull_request_target` instead, which runs with the base repository's permissions. Review GitHub's
+[security guidance for `pull_request_target`](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)
+first: the workflow then runs with write access against untrusted PR code, so never check out or execute the fork's
+contents in that job.
 
 **2. Version Resolution** -- on every push to main, reads Git tags and commit history to decide whether a release is
 needed and what the next version should be.
@@ -47,16 +59,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - id: bumpkin
-        uses: goeselt/bumpkin@v1
+      - id: intent
+        uses: goeselt/intent@v1
 
-      - name: Ship
-        if: steps.bumpkin.outputs.release-needed == 'true'
-        uses: goeselt/shipit@v1
+      - name: Dispatch
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: goeselt/dispatch@v1
         with:
-          release-tag: ${{ steps.bumpkin.outputs.release-tag }}
-          major-tag: ${{ steps.bumpkin.outputs.major-tag }}
-          minor-tag: ${{ steps.bumpkin.outputs.minor-tag }}
+          release-tag: ${{ steps.intent.outputs.release-tag }}
+          major-tag: ${{ steps.intent.outputs.major-tag }}
+          minor-tag: ${{ steps.intent.outputs.minor-tag }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -64,7 +76,7 @@ jobs:
 
 | Input                  | Default | Mode | Description                                                          |
 | ---------------------- | ------- | ---- | -------------------------------------------------------------------- |
-| `github-token`         | token   | PR   | Token used to list PR commits and post the PR comment.               |
+| `github-token`         | token   | PR   | Token required to list PR commits and post the PR comment.           |
 | `pr-comment`           | `true`  | PR   | Whether to create or update the explanatory PR comment.              |
 | `release-scope`        |         | push | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
 | `tag-prefix`           | `v`     | push | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
@@ -106,8 +118,8 @@ Accepted types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor
 **Scoped release** (monorepo with multiple independently versioned tools):
 
 ```yaml
-- id: bumpkin
-  uses: goeselt/bumpkin@v1
+- id: intent
+  uses: goeselt/intent@v1
   with:
     release-scope: cli
     release-paths: |
@@ -124,7 +136,7 @@ Tags become `cli/v1.2.3`; floating tags become `cli/v1` and `cli/v1.2`.
 **Silent PR check** (no comment posted, check status only):
 
 ```yaml
-- uses: goeselt/bumpkin@v1
+- uses: goeselt/intent@v1
   with:
     pr-comment: false
 ```

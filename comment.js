@@ -3,7 +3,7 @@
 const { bumpGt, firstLine } = require('./version.js')
 
 // Stable HTML-comment marker used to locate and overwrite the single bot comment.
-const MARKER = '<!-- bumpkin -->'
+const MARKER = '<!-- intent -->'
 
 const BUMP_REASON = {
   major: 'breaking change (`!` indicator or `BREAKING CHANGE` footer)',
@@ -96,7 +96,7 @@ function buildInvalidTitleComment(title, suggestion) {
     MARKER,
     '',
     alert('CAUTION', [
-      '**Bumpkin -- Invalid PR Title**',
+      '**Intent -- Invalid PR Title**',
       '',
       'The PR title does not follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/) format.',
       '',
@@ -129,7 +129,7 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
     MARKER,
     '',
     alert('CAUTION', [
-      '**Bumpkin -- Bump Conflict**',
+      '**Intent -- Bump Conflict**',
       '',
       `Commits in this PR require a **\`${maxCommitBump}\`** bump, but the PR title ${code(title)} only signals **\`${titleBump}\`**.`,
       '',
@@ -143,7 +143,7 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
 
 function buildSuccessComment(title, titleBump, commitAnalysis) {
   const isRelease = titleBump !== 'none'
-  const heading = isRelease ? `**Bumpkin -- \`${titleBump}\` bump**` : '**Bumpkin -- No Release**'
+  const heading = isRelease ? `**Intent -- \`${titleBump}\` bump**` : '**Intent -- No Release**'
 
   return [
     MARKER,
