@@ -17,19 +17,35 @@ const {
   validate,
 } = require('./version.js')
 
-// Diagnostic markers. Narrative lines carry a greppable `[bumpkin]` prefix;
-// problems use GitHub workflow-command annotations (which also carry `Bumpkin` so they stay greppable).
+// Diagnostic markers. Narrative lines carry a greppable `[intent]` prefix;
+// problems use GitHub workflow-command annotations (which also carry `Intent` so they stay greppable).
 // Every run ends with a single `result=pass|fail` line so a reader can find the verdict fast.
 function log(message) {
-  process.stdout.write(`[bumpkin] ${message}\n`)
+  process.stdout.write(`[intent] ${message}\n`)
+}
+
+function escapeCommandValue(value) {
+  return String(value ?? '')
+    .replace(/%/g, '%25')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A')
 }
 
 function warn(message) {
-  process.stdout.write(`::warning title=Bumpkin::${message}\n`)
+  process.stdout.write(`::warning title=Intent::${escapeCommandValue(message)}\n`)
 }
 
 function fail(message) {
-  process.stdout.write(`::error title=Bumpkin::${message}\n`)
+  process.stdout.write(`::error title=Intent::${escapeCommandValue(message)}\n`)
+}
+
+// A 403 from the comment endpoints almost always means the job's GITHUB_TOKEN lacks the `pull-requests: write`
+// permission -- the single most common cause, and the one actionable from the workflow file alone.
+function describeCommentFailure(err) {
+  if (/HTTP 403/.test(err.message)) {
+    return `could not post PR comment (permission denied): ${err.message} -- grant "pull-requests: write" permission to this job`
+  }
+  return `could not post PR comment: ${err.message}`
 }
 
 function input(name, fallback = '') {
@@ -76,7 +92,7 @@ function writeVersionOutputs(result) {
   setOutput('minor-tag', result.minorTag)
 }
 
-async function runPullRequest({ payload, token, postComment }) {
+async function runPullRequest({ payload, token, postComment, getCommits = getPRCommits, upsert = upsertComment }) {
   const pr = payload.pull_request
   if (!pr) throw new Error('pull_request payload is missing')
 
@@ -91,47 +107,37 @@ async function runPullRequest({ payload, token, postComment }) {
   log(`pr-title=${JSON.stringify(title)}`)
   log(`title-valid=${titleResult.valid} title-bump=${titleResult.bumpLevel ?? '-'}`)
 
-  let commitAnalysis = []
-  let maxCommitBump = 'none'
-
-  if (token) {
-    const commits = await getPRCommits(token, repo, prNumber)
-    if (commits.length >= MAX_PR_COMMITS) {
-      warn(
-        `PR has at least ${MAX_PR_COMMITS} commits; the GitHub API truncates the list, so a breaking change beyond that limit may be missed.`,
-      )
-    }
-    commitAnalysis = commits.map((c) => ({
-      sha: c.sha,
-      message: c.commit.message,
-      result: analyzeCommit(c.commit.message),
-    }))
-    maxCommitBump = commitAnalysis.reduce((max, { result }) => {
-      const bump = result.bumpLevel ?? 'none'
-      return bumpGt(bump, max) ? bump : max
-    }, 'none')
-    log(`commits-analyzed=${commitAnalysis.length} max-commit-bump=${maxCommitBump}`)
-  } else {
-    warn('github-token is empty; skipping PR commit analysis and comment')
-    log('commit-analysis=skipped reason=no-token')
+  if (!token) {
+    throw new Error('github-token is required for pull_request validation')
   }
 
-  if (postComment && token) {
+  const commits = await getCommits(token, repo, prNumber)
+  if (commits.length >= MAX_PR_COMMITS) {
+    throw new Error(
+      `PR has at least ${MAX_PR_COMMITS} commits; GitHub truncates commit analysis, so Intent cannot validate release intent safely`,
+    )
+  }
+  const commitAnalysis = commits.map((c) => ({
+    sha: c.sha,
+    message: c.commit.message,
+    result: analyzeCommit(c.commit.message),
+  }))
+  const maxCommitBump = commitAnalysis.reduce((max, { result }) => {
+    const bump = result.bumpLevel ?? 'none'
+    return bumpGt(bump, max) ? bump : max
+  }, 'none')
+  log(`commits-analyzed=${commitAnalysis.length} max-commit-bump=${maxCommitBump}`)
+
+  if (postComment) {
     try {
-      await upsertComment(
-        token,
-        repo,
-        prNumber,
-        MARKER,
-        buildComment({ titleResult, title, commitAnalysis, maxCommitBump }),
-      )
+      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }))
       log('comment=updated')
     } catch (err) {
-      warn(`could not post PR comment: ${err.message}`)
+      warn(describeCommentFailure(err))
       log('comment=failed')
     }
   } else {
-    log(`comment=skipped reason=${postComment ? 'no-token' : 'pr-comment-false'}`)
+    log('comment=skipped reason=pr-comment-false')
   }
 
   setOutput('release-needed', String(titleResult.valid && titleResult.bumpLevel !== 'none'))
@@ -197,7 +203,7 @@ function runVersion() {
   )
 }
 
-;(async () => {
+async function main() {
   const eventName = process.env['GITHUB_EVENT_NAME'] ?? ''
   const payload = eventPayload()
 
@@ -211,8 +217,19 @@ function runVersion() {
   }
 
   runVersion()
-})().catch((err) => {
-  fail(err.message)
-  log('result=fail reason=exception')
-  process.exit(1)
-})
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    fail(err.message)
+    log('result=fail reason=exception')
+    process.exit(1)
+  })
+}
+
+module.exports = {
+  describeCommentFailure,
+  escapeCommandValue,
+  main,
+  runPullRequest,
+}

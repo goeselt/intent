@@ -1,4 +1,4 @@
-# Contributing to Bumpkin
+# Contributing to Intent
 
 ## Design
 
@@ -39,5 +39,5 @@ npm test
 
 ## Submitting Changes
 
-Commit messages and PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/). Bumpkin reads
-its own commit history to resolve the next version, so the format is load-bearing.
+Commit messages and PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/). Intent reads its
+own commit history to resolve the next version, so the format is load-bearing.

@@ -25,19 +25,19 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - name: Validate PR Title
-        uses: goeselt/bumpkin@32ef90e2e8034fcd9b0dc33e3559424c5220841d # v1.0.0
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Validate Intent
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run Tests
         run: npm test
 
       - name: Pedant
-        uses: goeselt/pedant@dbb8852f9f6cbb107f989688b1d5d654aa44354b # v1.0.1
+        uses: goeselt/pedant@af85dee4cca8870ce618955da1a5de22d948d40d # v1.1.1
