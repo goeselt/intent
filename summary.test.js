@@ -54,11 +54,14 @@ test('buildVersionSummary shows the resolved release plan', () => {
     releaseTag: 'v1.3.0',
     majorTag: 'v1',
     minorTag: 'v1.3',
+    majorVersion: '1',
+    minorVersion: '1.3',
   })
 
   assert.match(summary, /Release needed:\*\* `true`/)
   assert.match(summary, /Current version:\*\* `1\.2\.3`/)
   assert.match(summary, /Release tag:\*\* `v1\.3\.0`/)
+  assert.match(summary, /Floating versions:\*\* `1`, `1\.3`/)
 })
 
 test('buildVersionSummary shows skipped reserved tags and the chosen alternative', () => {
@@ -72,6 +75,8 @@ test('buildVersionSummary shows skipped reserved tags and the chosen alternative
     releaseTag: 'v1.2.4',
     majorTag: 'v1',
     minorTag: 'v1.2',
+    majorVersion: '1',
+    minorVersion: '1.2',
   })
 
   assert.match(summary, /Skipped reserved tags:\*\* `1`/)

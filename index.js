@@ -110,6 +110,8 @@ function writeVersionOutputs(result) {
   setOutput('release-tag', result.releaseTag)
   setOutput('major-tag', result.majorTag)
   setOutput('minor-tag', result.minorTag)
+  setOutput('major-version', result.majorVersion)
+  setOutput('minor-version', result.minorVersion)
 }
 
 function describeReservedTagsSkipped(result) {

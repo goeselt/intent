@@ -76,6 +76,7 @@ function buildVersionSummary(result) {
     `**Previous tag:** ${code(result.previousTag || '(none)')}`,
     `**Release tag:** ${code(result.releaseTag)}`,
     `**Floating tags:** ${code(result.majorTag)}, ${code(result.minorTag)}`,
+    `**Floating versions:** ${code(result.majorVersion)}, ${code(result.minorVersion)}`,
   ]
 
   if (result.reservedTagsSkipped?.length > 0) {

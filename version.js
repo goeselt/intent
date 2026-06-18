@@ -150,6 +150,8 @@ function formatTags(version, scope, prefix) {
     releaseTag: `${base}${version}`,
     majorTag: `${base}${major}`,
     minorTag: `${base}${major}.${minor}`,
+    majorVersion: String(major),
+    minorVersion: `${major}.${minor}`,
   }
 }
 

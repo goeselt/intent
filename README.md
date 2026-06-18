@@ -7,6 +7,9 @@ GitHub Action that validates pull request release intent and resolves the next s
 Designed for squash-merge workflows: the PR title is the release signal, and the default-branch commit history drives
 the concrete version.
 
+Use intent when release decisions should be explicit, reviewable, and consistent: it rejects ambiguous PR titles, checks
+whether commits imply a stronger bump than the title promises, and turns trusted Git history into concrete release tags.
+
 ## Quick Start
 
 Intent covers two complementary jobs. Use both together for a complete release pipeline.
@@ -125,6 +128,8 @@ written.
 | `release-tag`     | `v1.3.0` | Full release tag. Push only.                            |
 | `major-tag`       | `v1`     | Floating major tag. Push only.                          |
 | `minor-tag`       | `v1.3`   | Floating minor tag. Push only.                          |
+| `major-version`   | `1`      | Floating major version without prefix/scope. Push only. |
+| `minor-version`   | `1.3`    | Floating minor version without prefix/scope. Push only. |
 
 ## Commit Mapping
 
@@ -157,6 +162,18 @@ Accepted types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor
 ```
 
 Tags become `cli/v1.2.3`; floating tags become `cli/v1` and `cli/v1.2`.
+
+**Floating Docker image tags** (use versions without the Git tag prefix or release scope):
+
+```yaml
+- uses: docker/build-push-action@v6
+  if: steps.intent.outputs.release-needed == 'true'
+  with:
+    tags: |
+      ghcr.io/example/my-image:${{ steps.intent.outputs.next-version }}
+      ghcr.io/example/my-image:${{ steps.intent.outputs.major-version }}
+      ghcr.io/example/my-image:${{ steps.intent.outputs.minor-version }}
+```
 
 **Reserved release tag** (skip deleted immutable-release tags that GitHub will not allow you to reuse):
 

@@ -58,6 +58,10 @@ outputs:
     description: 'Floating major tag, for example v1 or my-tool/v1.'
   minor-tag:
     description: 'Floating minor tag, for example v1.2 or my-tool/v1.2.'
+  major-version:
+    description: 'Floating major version without tag prefix or release scope, for example 1.'
+  minor-version:
+    description: 'Floating minor version without tag prefix or release scope, for example 1.2.'
 
 runs:
   using: node24

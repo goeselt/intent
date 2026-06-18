@@ -113,11 +113,15 @@ test('formatTags formats release and floating tags', () => {
     releaseTag: 'v1.2.3',
     majorTag: 'v1',
     minorTag: 'v1.2',
+    majorVersion: '1',
+    minorVersion: '1.2',
   })
   assert.deepEqual(formatTags('1.2.3', 'tool', 'v'), {
     releaseTag: 'tool/v1.2.3',
     majorTag: 'tool/v1',
     minorTag: 'tool/v1.2',
+    majorVersion: '1',
+    minorVersion: '1.2',
   })
 })
 
@@ -194,6 +198,8 @@ test('resolveVersion combines tags and commits into action outputs', () => {
       releaseTag: 'v1.2.4',
       majorTag: 'v1',
       minorTag: 'v1.2',
+      majorVersion: '1',
+      minorVersion: '1.2',
     },
   )
 })
@@ -227,6 +233,8 @@ test('resolveVersion skips reserved release tags and uses the next patch alterna
       releaseTag: 'v1.2.5',
       majorTag: 'v1',
       minorTag: 'v1.2',
+      majorVersion: '1',
+      minorVersion: '1.2',
     },
   )
 })
