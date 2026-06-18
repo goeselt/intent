@@ -1,8 +1,9 @@
 'use strict'
 
 const fs = require('node:fs')
+const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
-const { buildComment, MARKER } = require('./comment.js')
+const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
 const { getPRCommits, upsertComment, MAX_PR_COMMITS } = require('./github.js')
 const {
   analyzeCommit,
@@ -78,7 +79,14 @@ function isPREvent(eventName) {
 function setOutput(name, value) {
   const outputFile = process.env['GITHUB_OUTPUT']
   if (!outputFile) return
-  fs.appendFileSync(outputFile, `${name}=${value}\n`)
+  const text = String(value ?? '')
+  if (!/[\r\n]/.test(text)) {
+    fs.appendFileSync(outputFile, `${name}=${text}\n`)
+    return
+  }
+
+  const delimiter = `intent_${crypto.randomUUID().replace(/-/g, '')}`
+  fs.appendFileSync(outputFile, `${name}<<${delimiter}\n${text}\n${delimiter}\n`)
 }
 
 function writeVersionOutputs(result) {
@@ -130,7 +138,10 @@ async function runPullRequest({ payload, token, postComment, getCommits = getPRC
 
   if (postComment) {
     try {
-      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }))
+      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }), [
+        GENERATED_HEADER,
+        GENERATED_FOOTER,
+      ])
       log('comment=updated')
     } catch (err) {
       warn(describeCommentFailure(err))
@@ -172,19 +183,24 @@ function runVersion() {
   const releasePaths = parsePaths(input('RELEASE-PATHS'))
   const releaseIgnorePaths = parsePaths(input('RELEASE-IGNORE-PATHS'))
 
-  log('mode=version')
-  log(`inputs release-scope=${scope || '-'} tag-prefix=${prefix || '-'} initial-version=${initialVersion}`)
-  if (releasePaths.length > 0) log(`release-paths=${releasePaths.join(' ')}`)
-  if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
-
   // The tag pattern is interpolated into `git tag --list` before any `--`, so a leading dash would be parsed as a flag.
   // Reject it (inputs are trusted, but this keeps a misconfiguration from silently turning into an option).
   for (const [name, value] of [
     ['tag-prefix', prefix],
     ['release-scope', scope],
   ]) {
-    if (value.startsWith('-')) throw new Error(`${name} must not start with "-", got ${JSON.stringify(value)}`)
+    validateTagComponent(name, value)
   }
+  validateNoControlCharacters('initial-version', initialVersion)
+  releasePaths.forEach((path, index) => validateNoControlCharacters(`release-paths entry ${index + 1}`, path))
+  releaseIgnorePaths.forEach((path, index) =>
+    validateNoControlCharacters(`release-ignore-paths entry ${index + 1}`, path),
+  )
+
+  log('mode=version')
+  log(`inputs release-scope=${scope || '-'} tag-prefix=${prefix || '-'} initial-version=${initialVersion}`)
+  if (releasePaths.length > 0) log(`release-paths=${releasePaths.join(' ')}`)
+  if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
 
   const tagPattern = scope ? `${scope}/${prefix}*` : `${prefix}*`
   const tagOutput = git(['tag', '--list', tagPattern, '--sort=-v:refname'])
@@ -201,6 +217,19 @@ function runVersion() {
   log(
     `result=pass release-needed=${result.releaseNeeded} bump=${result.bumpLevel} current=${result.currentVersion} next=${result.nextVersion} release-tag=${result.releaseTag}`,
   )
+}
+
+function validateTagComponent(name, value) {
+  const text = String(value ?? '')
+  if (text.startsWith('-')) throw new Error(`${name} must not start with "-", got ${JSON.stringify(text)}`)
+  validateNoControlCharacters(name, text)
+}
+
+function validateNoControlCharacters(name, value) {
+  const text = String(value ?? '')
+  if (/[\x00-\x1f\x7f]/.test(text)) {
+    throw new Error(`${name} must not contain control characters, got ${JSON.stringify(text)}`)
+  }
 }
 
 async function main() {
@@ -232,4 +261,7 @@ module.exports = {
   escapeCommandValue,
   main,
   runPullRequest,
+  setOutput,
+  validateTagComponent,
+  validateNoControlCharacters,
 }

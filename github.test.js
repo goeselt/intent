@@ -3,6 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { commentMatches } = require('./github.js')
+const { GENERATED_FOOTER, GENERATED_HEADER } = require('./comment.js')
 
 test('commentMatches only matches marker comments by the authenticated author', () => {
   const marker = '<!-- intent -->'
@@ -15,9 +16,23 @@ test('commentMatches only matches marker comments by the authenticated author', 
   assert.equal(commentMatches({ body: `hello\n${marker}` }, marker, 'intent[bot]'), false)
 })
 
-test('commentMatches falls back to marker-only when the author login is unknown', () => {
+test('commentMatches requires the generated signature when the author login is unknown', () => {
   const marker = '<!-- intent -->'
-  assert.equal(commentMatches({ body: `hello\n${marker}`, user: { login: 'anyone' } }, marker, ''), true)
-  assert.equal(commentMatches({ body: `hello\n${marker}` }, marker, ''), true)
+  const signedBody = `${marker}\n\n${GENERATED_HEADER}\n\nbody\n\n${GENERATED_FOOTER}`
+  assert.equal(
+    commentMatches({ body: signedBody, user: { login: 'anyone' } }, marker, '', [
+      GENERATED_HEADER,
+      GENERATED_FOOTER,
+    ]),
+    true,
+  )
+  assert.equal(
+    commentMatches({ body: `hello\n${marker}`, user: { login: 'anyone' } }, marker, '', [
+      GENERATED_HEADER,
+      GENERATED_FOOTER,
+    ]),
+    false,
+  )
+  assert.equal(commentMatches({ body: signedBody, user: { login: 'anyone' } }, marker, ''), false)
   assert.equal(commentMatches({ body: 'no marker', user: { login: 'anyone' } }, marker, ''), false)
 })

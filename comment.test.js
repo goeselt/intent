@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { buildComment, MARKER } = require('./comment.js')
+const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
 
 function makeCommit(sha, message, bumpLevel, valid = true) {
   return { sha, message, result: { valid, bumpLevel, errors: [] } }
@@ -18,6 +18,17 @@ test('MARKER is always present in output', () => {
     maxCommitBump: 'none',
   })
   assert.ok(body.includes(MARKER), 'MARKER missing from comment')
+})
+
+test('generated comment signature is always visible in output', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add login',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+  })
+  assert.ok(body.includes(GENERATED_HEADER), 'generated header missing from comment')
+  assert.ok(body.includes(GENERATED_FOOTER), 'generated footer missing from comment')
 })
 
 // --- invalid title ---------------------------------------------------------------------------------------------------

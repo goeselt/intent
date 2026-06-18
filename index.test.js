@@ -2,7 +2,16 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { describeCommentFailure, escapeCommandValue, runPullRequest } = require('./index.js')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const {
+  describeCommentFailure,
+  escapeCommandValue,
+  runPullRequest,
+  setOutput,
+  validateTagComponent,
+} = require('./index.js')
 const { MAX_PR_COMMITS } = require('./github.js')
 
 function payload(overrides = {}) {
@@ -40,6 +49,34 @@ async function captureStdout(fn) {
 
 test('escapeCommandValue escapes GitHub workflow command control characters', () => {
   assert.equal(escapeCommandValue('a%b\rc\nd'), 'a%25b%0Dc%0Ad')
+})
+
+test('validateTagComponent rejects values that can inject logs or outputs', () => {
+  assert.throws(() => validateTagComponent('release-scope', 'tool\nother-output=owned'), /control characters/)
+  assert.throws(() => validateTagComponent('tag-prefix', '-v'), /must not start/)
+  assert.doesNotThrow(() => validateTagComponent('release-scope', 'tool'))
+  assert.doesNotThrow(() => validateTagComponent('tag-prefix', 'v'))
+})
+
+test('setOutput uses GitHub multiline output syntax for newline values', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-output-'))
+  const outputFile = path.join(dir, 'output')
+  const previousOutput = process.env.GITHUB_OUTPUT
+  process.env.GITHUB_OUTPUT = outputFile
+
+  try {
+    setOutput('release-tag', 'x\ninjected-output=owned/v1.0.1')
+    const output = fs.readFileSync(outputFile, 'utf8')
+    assert.match(output, /^release-tag<<intent_[a-f0-9]+\n/)
+    assert.match(output, /x\ninjected-output=owned\/v1\.0\.1\nintent_[a-f0-9]+\n$/)
+  } finally {
+    if (previousOutput === undefined) {
+      delete process.env.GITHUB_OUTPUT
+    } else {
+      process.env.GITHUB_OUTPUT = previousOutput
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('describeCommentFailure adds permission guidance for HTTP 403 responses', () => {
