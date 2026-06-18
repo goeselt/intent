@@ -7,6 +7,7 @@ const os = require('node:os')
 const path = require('node:path')
 const {
   describeCommentFailure,
+  describeReservedTagsSkipped,
   escapeCommandValue,
   parseCommentMode,
   runPullRequest,
@@ -106,6 +107,18 @@ test('describeCommentFailure leaves other errors unchanged', () => {
     describeCommentFailure(err),
     'could not post PR comment: GitHub API POST /repos/x/y/issues/1/comments --> HTTP 500: server error',
   )
+})
+
+test('describeReservedTagsSkipped explains the skipped tags and chosen alternative', () => {
+  assert.equal(
+    describeReservedTagsSkipped({ reservedTagsSkipped: ['v1.2.3'], releaseTag: 'v1.2.4' }),
+    'reserved release tag skipped; using "v1.2.4" instead',
+  )
+  assert.equal(
+    describeReservedTagsSkipped({ reservedTagsSkipped: ['v1.2.3', 'v1.2.4'], releaseTag: 'v1.2.5' }),
+    '2 reserved release tags skipped; using "v1.2.5" instead',
+  )
+  assert.equal(describeReservedTagsSkipped({ reservedTagsSkipped: [], releaseTag: 'v1.2.4' }), '')
 })
 
 test('runPullRequest fails closed when github-token is missing', async () => {

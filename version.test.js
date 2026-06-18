@@ -13,6 +13,7 @@ const {
   maxBump,
   parseCommitLog,
   parsePaths,
+  parseReservedTags,
   parseSemver,
   resolveVersion,
   validate,
@@ -40,12 +41,14 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
   }
 })
 
-test('validate rejects aliases and suggests the canonical title', () => {
+test('validate rejects non-canonical aliases as unknown types', () => {
   assert.deepEqual(validate('feature: add login'), {
     valid: false,
     bumpLevel: null,
-    errors: ['type "feature" is not canonical; use "feat"'],
-    suggestion: 'feat: add login',
+    errors: [
+      'unknown type "feature"',
+      'allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test',
+    ],
   })
 })
 
@@ -126,6 +129,17 @@ test('parsePaths trims newline-separated path filters', () => {
   assert.deepEqual(parsePaths('src/\n\n docs/readme.md \n'), ['src/', 'docs/readme.md'])
 })
 
+test('parseReservedTags accepts comma, whitespace, and newline separated release tags', () => {
+  assert.deepEqual(parseReservedTags('v1.2.3, v1.2.4\nv1.2.4 v1.2.5'), ['v1.2.3', 'v1.2.4', 'v1.2.5'])
+})
+
+test('parseReservedTags validates tags against the configured release namespace', () => {
+  assert.deepEqual(parseReservedTags('cli/v1.2.3', { scope: 'cli', prefix: 'v' }), ['cli/v1.2.3'])
+  assert.throws(() => parseReservedTags('v1.2.3', { scope: 'cli', prefix: 'v' }), /cli\/v<major\.minor\.patch>/)
+  assert.throws(() => parseReservedTags('v1.2', { prefix: 'v' }), /v<major\.minor\.patch>/)
+  assert.throws(() => parseReservedTags('not-a-version', { prefix: 'v' }), /v<major\.minor\.patch>/)
+})
+
 test('buildReleasePathspecs combines include and ignore path filters', () => {
   assert.deepEqual(buildReleasePathspecs(['src/', 'package.json'], ['docs/']), [
     'src/',
@@ -176,6 +190,7 @@ test('resolveVersion combines tags and commits into action outputs', () => {
       currentVersion: '1.2.3',
       nextVersion: '1.2.4',
       previousTag: 'v1.2.3',
+      reservedTagsSkipped: [],
       releaseTag: 'v1.2.4',
       majorTag: 'v1',
       minorTag: 'v1.2',
@@ -192,4 +207,26 @@ test('resolveVersion keeps current version when there is no release bump', () =>
   assert.equal(result.releaseNeeded, false)
   assert.equal(result.bumpLevel, 'none')
   assert.equal(result.nextVersion, '1.2.3')
+})
+
+test('resolveVersion skips reserved release tags and uses the next patch alternative', () => {
+  assert.deepEqual(
+    resolveVersion({
+      initialVersion: '0.0.0',
+      tagOutput: 'v1.2.2\n',
+      commitMessages: ['fix: bug'],
+      reservedTags: ['v1.2.3', 'v1.2.4'],
+    }),
+    {
+      releaseNeeded: true,
+      bumpLevel: 'patch',
+      currentVersion: '1.2.2',
+      nextVersion: '1.2.5',
+      previousTag: 'v1.2.2',
+      reservedTagsSkipped: ['v1.2.3', 'v1.2.4'],
+      releaseTag: 'v1.2.5',
+      majorTag: 'v1',
+      minorTag: 'v1.2',
+    },
+  )
 })

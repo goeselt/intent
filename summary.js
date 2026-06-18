@@ -19,8 +19,7 @@ function cell(value, maxLen) {
   return code(rendered.replace(/\|/g, '\\|'))
 }
 
-function titleFix(titleResult) {
-  if (titleResult.suggestion) return `Rename the PR title to ${code(titleResult.suggestion)}.`
+function titleFix() {
   return 'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
 }
 
@@ -67,7 +66,7 @@ function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommit
 }
 
 function buildVersionSummary(result) {
-  return [
+  const lines = [
     '## Intent Release',
     '',
     `**Release needed:** ${code(String(result.releaseNeeded))}`,
@@ -77,7 +76,16 @@ function buildVersionSummary(result) {
     `**Previous tag:** ${code(result.previousTag || '(none)')}`,
     `**Release tag:** ${code(result.releaseTag)}`,
     `**Floating tags:** ${code(result.majorTag)}, ${code(result.minorTag)}`,
-  ].join('\n')
+  ]
+
+  if (result.reservedTagsSkipped?.length > 0) {
+    lines.push(
+      `**Skipped reserved tags:** ${code(String(result.reservedTagsSkipped.length))}`,
+      `**Reserved tag alternative:** ${code(result.releaseTag)}`,
+    )
+  }
+
+  return lines.join('\n')
 }
 
 module.exports = { buildPullRequestSummary, buildVersionSummary, titleFix }

@@ -15,6 +15,7 @@ const {
   firstLine,
   parseCommitLog,
   parsePaths,
+  parseReservedTags,
   resolveVersion,
   validate,
 } = require('./version.js')
@@ -109,6 +110,15 @@ function writeVersionOutputs(result) {
   setOutput('release-tag', result.releaseTag)
   setOutput('major-tag', result.majorTag)
   setOutput('minor-tag', result.minorTag)
+}
+
+function describeReservedTagsSkipped(result) {
+  const skipped = result.reservedTagsSkipped ?? []
+  if (skipped.length === 0) return ''
+
+  const prefix =
+    skipped.length === 1 ? 'reserved release tag skipped' : `${skipped.length} reserved release tags skipped`
+  return `${prefix}; using ${JSON.stringify(result.releaseTag)} instead`
 }
 
 function appendStepSummary(content) {
@@ -218,6 +228,7 @@ function runVersion() {
   const initialVersion = input('INITIAL-VERSION', '0.0.0')
   const releasePaths = parsePaths(input('RELEASE-PATHS'))
   const releaseIgnorePaths = parsePaths(input('RELEASE-IGNORE-PATHS'))
+  const reservedTagsInput = input('RESERVED-TAGS')
 
   // The tag pattern is interpolated into `git tag --list` before any `--`, so a leading dash would be parsed as a flag.
   // Reject it (inputs are trusted, but this keeps a misconfiguration from silently turning into an option).
@@ -232,11 +243,13 @@ function runVersion() {
   releaseIgnorePaths.forEach((path, index) =>
     validateNoControlCharacters(`release-ignore-paths entry ${index + 1}`, path),
   )
+  const reservedTags = parseReservedTags(reservedTagsInput, { scope, prefix })
 
   log('mode=version')
   log(`inputs release-scope=${scope || '-'} tag-prefix=${prefix || '-'} initial-version=${initialVersion}`)
   if (releasePaths.length > 0) log(`release-paths=${releasePaths.join(' ')}`)
   if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
+  if (reservedTags.length > 0) log(`reserved-tags=${reservedTags.length} configured`)
 
   const tagPattern = scope ? `${scope}/${prefix}*` : `${prefix}*`
   const tagOutput = git(['tag', '--list', tagPattern, '--sort=-v:refname'])
@@ -248,7 +261,9 @@ function runVersion() {
   const commitMessages = parseCommitLog(git(buildLogArgs(previousTag, pathspecs)))
   log(`commits-analyzed=${commitMessages.length}`)
 
-  const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix })
+  const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix, reservedTags })
+  const reservedTagWarning = describeReservedTagsSkipped(result)
+  if (reservedTagWarning) warn(reservedTagWarning)
   writeVersionOutputs(result)
   appendStepSummary(buildVersionSummary(result))
   log(
@@ -303,6 +318,7 @@ if (require.main === module) {
 
 module.exports = {
   describeCommentFailure,
+  describeReservedTagsSkipped,
   escapeCommandValue,
   main,
   parseCommentMode,

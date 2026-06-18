@@ -60,6 +60,12 @@ For a single release stream with the default `tag-prefix: v`, protect `v*`. For 
 create or update those matching tags; contributors who can push branches should not automatically be able to create
 release-state tags.
 
+GitHub can permanently reserve tag names that were used by immutable releases, even after the release and tag were
+deleted. Git does not expose those reserved names during checkout, so Intent cannot discover them automatically. If a
+version tag is known to be unusable, add it to `reserved-tags`; Intent will skip it, emit a warning annotation, and use
+the next patch version as a best-effort alternative. Entries must be full release tags for the configured namespace
+(`v1.2.3` by default, or e.g. `cli/v1.2.3` with `release-scope: cli`).
+
 ```yaml
 on:
   push:
@@ -97,10 +103,15 @@ jobs:
 | `initial-version`      | `0.0.0`    | push | Version used when no matching release tag exists yet.                |
 | `release-paths`        |            | push | Newline-separated paths allowed to contribute to version resolution. |
 | `release-ignore-paths` |            | push | Newline-separated paths excluded from version resolution.            |
+| `reserved-tags`        |            | push | Full tag names that must not be proposed.                            |
 
 `release-paths` and `release-ignore-paths` accept Git pathspecs, one per line. When `release-paths` is set, only commits
 touching those paths can contribute a bump. When `release-ignore-paths` is set, commits touching only ignored paths are
 excluded.
+
+`reserved-tags` accepts newlines, commas, or whitespace as separators. This makes all of these forms equivalent:
+`v1.2.3 v1.2.4`, `v1.2.3, v1.2.4`, or a YAML block list. Invalid entries fail the action before version outputs are
+written.
 
 ## Outputs
 
@@ -146,6 +157,34 @@ Accepted types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor
 ```
 
 Tags become `cli/v1.2.3`; floating tags become `cli/v1` and `cli/v1.2`.
+
+**Reserved release tag** (skip deleted immutable-release tags that GitHub will not allow you to reuse):
+
+```yaml
+- id: intent
+  uses: goeselt/intent@v1
+  with:
+    reserved-tags: ${{ vars.INTENT_RESERVED_TAGS }}
+```
+
+Use a secret instead if you do not want the configured list visible in repository settings:
+
+```yaml
+- id: intent
+  uses: goeselt/intent@v1
+  with:
+    reserved-tags: ${{ secrets.INTENT_RESERVED_TAGS }}
+```
+
+For a small public list, inline YAML is also fine:
+
+```yaml
+- id: intent
+  uses: goeselt/intent@v1
+  with:
+    reserved-tags: |
+      v1.2.3
+```
 
 **Always comment on PRs** (create or update the sticky comment even when the PR already passes):
 

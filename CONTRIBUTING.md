@@ -41,6 +41,8 @@ exit code. Prefer moving formatting into `comment.js` or `summary.js` and pure r
 - Keep PR titles and commit subjects sanitized in comments and summaries. Avoid bare `@mentions` and broken Markdown
   tables.
 - Keep PR commit analysis fail-closed when GitHub may truncate the commit list at 250 commits.
+- Keep reserved-tag handling explicit. Deleted immutable-release tags are not discoverable from checkout; users must
+  list known unusable tag names in `reserved-tags`, and the action must not log the full configured list.
 - Do not identify the sticky PR comment by the hidden marker alone when the posting identity is unknown. The fallback
   must require both a Bot author and the visible generated-comment header/footer.
 - Treat matching Git tags as trusted release state. The action may reject malformed SemVer tags, but repository rules

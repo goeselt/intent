@@ -89,11 +89,7 @@ function alert(type, contentLines) {
   return [`> [!${type}]`, ...body].join('\n')
 }
 
-function buildInvalidTitleComment(title, suggestion) {
-  const fixLine = suggestion
-    ? `**How to fix:** Rename the PR title to ${code(suggestion)}`
-    : '**How to fix:** Update the PR title -- for example: `feat: add login` or `fix(auth)!: remove deprecated endpoint`'
-
+function buildInvalidTitleComment(title) {
   return [
     MARKER,
     '',
@@ -109,7 +105,7 @@ function buildInvalidTitleComment(title, suggestion) {
       '',
       '**Allowed types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`',
       '',
-      fixLine,
+      '**How to fix:** Update the PR title -- for example: `feat: add login` or `fix(auth)!: remove deprecated endpoint`',
     ]),
     '',
     GENERATED_FOOTER,
@@ -182,7 +178,7 @@ function buildSuccessComment(title, titleBump, commitAnalysis) {
  */
 function buildComment({ titleResult, title, commitAnalysis, maxCommitBump }) {
   if (!titleResult.valid) {
-    return buildInvalidTitleComment(title, titleResult.suggestion)
+    return buildInvalidTitleComment(title)
   }
   const titleBump = titleResult.bumpLevel
   if (bumpGt(maxCommitBump, titleBump)) {

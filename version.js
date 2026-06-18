@@ -1,12 +1,12 @@
 'use strict'
 
 const TYPES = new Set(['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'style', 'test'])
-const TYPE_ALIASES = { feature: 'feat', bug: 'fix', performance: 'perf', doc: 'docs' }
 
 const BUMP_ORDER = { none: 0, patch: 1, minor: 2, major: 3 }
 const HEADER_RE = /^([a-z]+)(\([^)]+\))?(!)?: (.*)$/
 const BREAKING_FOOTER_RE = /^BREAKING[ -]CHANGE:/
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const MAX_RESERVED_TAG_SKIPS = 100
 
 function bumpGt(a, b) {
   return (BUMP_ORDER[a] ?? -1) > (BUMP_ORDER[b] ?? -1)
@@ -14,10 +14,6 @@ function bumpGt(a, b) {
 
 function firstLine(text) {
   return String(text ?? '').split(/\r?\n/)[0]
-}
-
-function canonicalType(type) {
-  return TYPE_ALIASES[type] ?? type
 }
 
 function deriveBump(type, breaking) {
@@ -47,23 +43,13 @@ function validate(rawTitle) {
     }
   }
 
-  const [, rawType, , bang, description] = match
-  const type = canonicalType(rawType)
-
-  if (type !== rawType && TYPES.has(type)) {
-    return {
-      valid: false,
-      bumpLevel: null,
-      errors: [`type "${rawType}" is not canonical; use "${type}"`],
-      suggestion: type + title.slice(rawType.length),
-    }
-  }
+  const [, type, , bang, description] = match
 
   if (!TYPES.has(type)) {
     return {
       valid: false,
       bumpLevel: null,
-      errors: [`unknown type "${rawType}"`, `allowed types: ${[...TYPES].sort().join(', ')}`],
+      errors: [`unknown type "${type}"`, `allowed types: ${[...TYPES].sort().join(', ')}`],
     }
   }
 
@@ -133,6 +119,10 @@ function applyBump(version, bump) {
   return version
 }
 
+function nextPatchVersion(version) {
+  return applyBump(version, 'patch')
+}
+
 function tagBase(scope, prefix) {
   return scope ? `${scope}/${prefix}` : prefix
 }
@@ -177,6 +167,29 @@ function parsePaths(input) {
     .filter(Boolean)
 }
 
+function parseReservedTags(input, { scope = '', prefix = 'v' } = {}) {
+  const base = tagBase(scope, prefix)
+  const expected = `${base}<major.minor.patch>`
+  const tags = String(input ?? '')
+    .split(/[,\s]+/)
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+
+  const seen = new Set()
+  const reserved = []
+  tags.forEach((tag, index) => {
+    if (!tag.startsWith(base) || !isValidSemver(tag.slice(base.length))) {
+      throw new Error(`reserved-tags entry ${index + 1} must match ${JSON.stringify(expected)}`)
+    }
+    if (!seen.has(tag)) {
+      seen.add(tag)
+      reserved.push(tag)
+    }
+  })
+
+  return reserved
+}
+
 function buildReleasePathspecs(releasePaths, releaseIgnorePaths) {
   const includes = [...releasePaths]
   const excludes = releaseIgnorePaths.map((path) => `:(exclude)${path}`)
@@ -199,7 +212,25 @@ function buildLogArgs(previousTag, pathspecs = []) {
   return args
 }
 
-function resolveVersion({ initialVersion, tagOutput, commitMessages, scope = '', prefix = 'v' }) {
+function skipReservedReleaseTags(nextVersion, scope, prefix, reservedTags) {
+  const reserved = new Set(reservedTags)
+  const skipped = []
+  let candidate = nextVersion
+
+  for (let attempt = 0; attempt < MAX_RESERVED_TAG_SKIPS; attempt++) {
+    const { releaseTag } = formatTags(candidate, scope, prefix)
+    if (!reserved.has(releaseTag)) {
+      return { nextVersion: candidate, skipped }
+    }
+
+    skipped.push(releaseTag)
+    candidate = nextPatchVersion(candidate)
+  }
+
+  throw new Error(`could not find a non-reserved release tag after ${MAX_RESERVED_TAG_SKIPS} attempts`)
+}
+
+function resolveVersion({ initialVersion, tagOutput, commitMessages, scope = '', prefix = 'v', reservedTags = [] }) {
   parseSemver(initialVersion)
 
   const previousTag = findLatestTag(tagOutput, scope, prefix)
@@ -207,7 +238,18 @@ function resolveVersion({ initialVersion, tagOutput, commitMessages, scope = '',
   parseSemver(currentVersion)
 
   const bump = maxBump(commitMessages)
-  const nextVersion = applyBump(currentVersion, bump)
+  let nextVersion = applyBump(currentVersion, bump)
+  let reservedTagsSkipped = []
+  if (bump !== 'none') {
+    const { nextVersion: reservedNextVersion, skipped } = skipReservedReleaseTags(
+      nextVersion,
+      scope,
+      prefix,
+      reservedTags,
+    )
+    nextVersion = reservedNextVersion
+    reservedTagsSkipped = skipped
+  }
   const tags = formatTags(nextVersion, scope, prefix)
 
   return {
@@ -216,6 +258,7 @@ function resolveVersion({ initialVersion, tagOutput, commitMessages, scope = '',
     currentVersion,
     nextVersion,
     previousTag,
+    reservedTagsSkipped,
     ...tags,
   }
 }
@@ -232,6 +275,7 @@ module.exports = {
   maxBump,
   parseCommitLog,
   parsePaths,
+  parseReservedTags,
   buildReleasePathspecs,
   buildLogArgs,
   parseSemver,

@@ -56,20 +56,18 @@ test('invalid title: empty string handled gracefully', () => {
   assert.ok(body.includes('(empty)'), 'empty placeholder missing')
 })
 
-test('invalid title: alias suggestion is shown as the concrete fix', () => {
+test('invalid title: aliases use the strict format hint', () => {
   const body = buildComment({
     titleResult: {
       valid: false,
       bumpLevel: null,
-      errors: ['type "feature" is not canonical; use "feat"'],
-      suggestion: 'feat: add login',
+      errors: ['unknown type "feature"'],
     },
     title: 'feature: add login',
     commitAnalysis: [],
     maxCommitBump: 'none',
   })
-  assert.ok(body.includes('Rename the PR title to'), 'rename hint missing')
-  assert.ok(body.includes('`feat: add login`'), 'concrete suggestion missing')
+  assert.ok(body.includes('Update the PR title'), 'strict format hint missing')
 })
 
 // --- bump conflict ---------------------------------------------------------------------------------------------------

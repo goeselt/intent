@@ -36,6 +36,10 @@ inputs:
     description: 'Push mode only. Optional newline-separated paths that are ignored during version resolution.'
     required: false
     default: ''
+  reserved-tags:
+    description: 'Push mode only. Optional full tag names that must not be proposed, separated by newlines, commas, or whitespace.'
+    required: false
+    default: ''
 
 outputs:
   release-needed:
