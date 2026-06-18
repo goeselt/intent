@@ -49,7 +49,7 @@ jobs:
 
       - name: Commit Version
         if: steps.intent.outputs.release-needed == 'true'
-        uses: ./
+        uses: goeselt/scribe@b1f7a92ec86ef50d731050f59624a049854e031a # v1.1.1
         with:
           files: package.json
           message: 'chore: release ${{ steps.intent.outputs.release-tag }}'
@@ -59,7 +59,7 @@ jobs:
 
       - name: Release
         if: steps.intent.outputs.release-needed == 'true'
-        uses: goeselt/dispatch@f82290ff964eaff66e9ef014d1f16fd3833ffb58 # v1.0.4
+        uses: goeselt/dispatch@08a74b01bfe25e6b6201923e90e0b4b0e0425a67 # v1.0.5
         with:
           release-tag: ${{ steps.intent.outputs.release-tag }}
           major-tag: ${{ steps.intent.outputs.major-tag }}
