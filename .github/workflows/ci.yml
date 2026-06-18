@@ -35,8 +35,11 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-comment: true
 
       - name: Run Tests
+        env:
+          GITHUB_STEP_SUMMARY: ''
         run: npm test
 
       - name: Pedant

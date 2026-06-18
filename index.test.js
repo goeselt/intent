@@ -49,6 +49,20 @@ async function captureStdout(fn) {
   return lines.join('')
 }
 
+async function withoutStepSummary(fn) {
+  const previousSummary = process.env.GITHUB_STEP_SUMMARY
+  delete process.env.GITHUB_STEP_SUMMARY
+  try {
+    return await fn()
+  } finally {
+    if (previousSummary === undefined) {
+      delete process.env.GITHUB_STEP_SUMMARY
+    } else {
+      process.env.GITHUB_STEP_SUMMARY = previousSummary
+    }
+  }
+}
+
 test('escapeCommandValue escapes GitHub workflow command control characters', () => {
   assert.equal(escapeCommandValue('a%b\rc\nd'), 'a%25b%0Dc%0Ad')
 })
@@ -158,19 +172,21 @@ test('runPullRequest fails closed when GitHub may have truncated PR commits', as
 })
 
 test('runPullRequest accepts a missing comment permission and warns instead of failing the job', async () => {
-  const output = await captureStdout(() =>
-    runPullRequest({
-      payload: payload(),
-      token: 'token',
-      postComment: true,
-      getCommits: () => Promise.resolve([]),
-      upsert: () =>
-        Promise.reject(
-          new Error(
-            'GitHub API POST /repos/x/y/issues/123/comments --> HTTP 403: {"message":"Resource not accessible by integration"}',
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload(),
+        token: 'token',
+        postComment: true,
+        getCommits: () => Promise.resolve([]),
+        upsert: () =>
+          Promise.reject(
+            new Error(
+              'GitHub API POST /repos/x/y/issues/123/comments --> HTTP 403: {"message":"Resource not accessible by integration"}',
+            ),
           ),
-        ),
-    }),
+      }),
+    ),
   )
 
   assert.match(output, /::warning title=Intent::could not post PR comment \(permission denied\)/)
