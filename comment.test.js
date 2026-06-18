@@ -61,7 +61,7 @@ test('invalid title: alias suggestion is shown as the concrete fix', () => {
     titleResult: {
       valid: false,
       bumpLevel: null,
-      errors: ['type "feature" is not recognized by downstream release tools; use "feat"'],
+      errors: ['type "feature" is not canonical; use "feat"'],
       suggestion: 'feat: add login',
     },
     title: 'feature: add login',

@@ -28,7 +28,8 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
     ['fix: update\n\nBREAKING-CHANGE: new format', 'major'],
     ['docs: update readme', 'none'],
     ['chore: update deps', 'none'],
-    ['feature: add alias support', 'minor'],
+    ['feature: add alias support', 'none'],
+    ['FEAT: add uppercase type', 'none'],
     ['just a message', 'none'],
     ['feat:', 'none'],
     ['', 'none'],
@@ -39,20 +40,32 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
   }
 })
 
-test('validate rejects aliases in strict mode and suggests canonical title', () => {
-  assert.deepEqual(validate('feature: add login', { strict: true }), {
+test('validate rejects aliases and suggests the canonical title', () => {
+  assert.deepEqual(validate('feature: add login'), {
     valid: false,
     bumpLevel: null,
-    errors: ['type "feature" is not recognized by downstream release tools; use "feat"'],
+    errors: ['type "feature" is not canonical; use "feat"'],
     suggestion: 'feat: add login',
   })
 })
 
-test('validate accepts canonical PR titles in strict mode', () => {
-  assert.deepEqual(validate('feat(auth)!: remove legacy login', { strict: true }), {
+test('validate accepts only canonical PR titles', () => {
+  assert.deepEqual(validate('feat(auth)!: remove legacy login'), {
     valid: true,
     bumpLevel: 'major',
     errors: [],
+  })
+})
+
+test('validate rejects uppercase conventional commit types', () => {
+  assert.deepEqual(validate('FEAT: add login'), {
+    valid: false,
+    bumpLevel: null,
+    errors: [
+      'title does not match <type>[scope][!]: <description>',
+      'got: FEAT: add login',
+      'allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test',
+    ],
   })
 })
 

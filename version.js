@@ -27,14 +27,14 @@ function deriveBump(type, breaking) {
   return 'none'
 }
 
-function validate(rawTitle, { strict = false } = {}) {
+function validate(rawTitle) {
   const title = firstLine(rawTitle)
 
   if (title.trim() === '') {
     return { valid: false, bumpLevel: null, errors: ['PR title is empty'] }
   }
 
-  const match = title.toLowerCase().match(HEADER_RE)
+  const match = title.match(HEADER_RE)
   if (!match) {
     return {
       valid: false,
@@ -50,11 +50,11 @@ function validate(rawTitle, { strict = false } = {}) {
   const [, rawType, , bang, description] = match
   const type = canonicalType(rawType)
 
-  if (strict && type !== rawType && TYPES.has(type)) {
+  if (type !== rawType && TYPES.has(type)) {
     return {
       valid: false,
       bumpLevel: null,
-      errors: [`type "${rawType}" is not recognized by downstream release tools; use "${type}"`],
+      errors: [`type "${rawType}" is not canonical; use "${type}"`],
       suggestion: type + title.slice(rawType.length),
     }
   }

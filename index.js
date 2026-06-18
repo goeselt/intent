@@ -134,7 +134,7 @@ async function runPullRequest({
 
   const title = pr.title ?? ''
   const prNumber = pr.number
-  const titleResult = validate(title, { strict: true })
+  const titleResult = validate(title)
   const commentMode = parseCommentMode(postComment)
 
   log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${commentMode}`)

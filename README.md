@@ -55,6 +55,11 @@ The latest matching Git tag is treated as release state. Protect the tag namespa
 matching tags can influence the next resolved version. Intent ignores malformed SemVer tags, but it cannot distinguish a
 legitimate release tag from an authorized-but-wrong tag after checkout.
 
+For a single release stream with the default `tag-prefix: v`, protect `v*`. For a scoped release such as
+`release-scope: cli` and `tag-prefix: v`, protect `cli/v*`. The release job should be the only workflow allowed to
+create or update those matching tags; contributors who can push branches should not automatically be able to create
+release-state tags.
+
 ```yaml
 on:
   push:
