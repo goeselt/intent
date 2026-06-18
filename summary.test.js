@@ -24,11 +24,11 @@ test('buildPullRequestSummary explains a bump conflict and marks the commit', ()
     commentStatus: 'updated',
   })
 
-  assert.match(summary, /Result:\*\* fail - bump conflict/)
+  assert.match(summary, /\| Result \| `fail - bump conflict` \|/)
   assert.match(summary, /How to fix/)
   assert.match(summary, /abcdef1/)
   assert.match(summary, /major \(conflict\)/)
-  assert.match(summary, /PR comment:\*\* updated/)
+  assert.match(summary, /\| PR comment \| `updated` \|/)
 })
 
 test('buildPullRequestSummary truncates long commit tables', () => {
@@ -58,10 +58,10 @@ test('buildVersionSummary shows the resolved release plan', () => {
     minorVersion: '1.3',
   })
 
-  assert.match(summary, /Release needed:\*\* `true`/)
-  assert.match(summary, /Current version:\*\* `1\.2\.3`/)
-  assert.match(summary, /Release tag:\*\* `v1\.3\.0`/)
-  assert.match(summary, /Floating versions:\*\* `1`, `1\.3`/)
+  assert.match(summary, /\| Release needed \| `true` \|/)
+  assert.match(summary, /\| Current version \| `1\.2\.3` \|/)
+  assert.match(summary, /\| Release tag \| `v1\.3\.0` \|/)
+  assert.match(summary, /\| Floating versions \| `1`, `1\.3` \|/)
 })
 
 test('buildVersionSummary shows skipped reserved tags and the chosen alternative', () => {
@@ -79,6 +79,6 @@ test('buildVersionSummary shows skipped reserved tags and the chosen alternative
     minorVersion: '1.2',
   })
 
-  assert.match(summary, /Skipped reserved tags:\*\* `1`/)
-  assert.match(summary, /Reserved tag alternative:\*\* `v1\.2\.4`/)
+  assert.match(summary, /\| Skipped reserved tags \| `1` \|/)
+  assert.match(summary, /\| Reserved tag alternative \| `v1\.2\.4` \|/)
 })
