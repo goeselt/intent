@@ -35,6 +35,8 @@ exit code. Prefer moving formatting into `comment.js` or `summary.js` and pure r
 
 - No runtime dependencies and no build step. This action should be easy to inspect from the checked-in source.
 - Do not run user-controlled data through a shell. Git calls use `execFileSync('git', args)`.
+- Use the `github-token` input for every GitHub operation that needs authentication; do not read ambient token
+  environment variables directly.
 - Escape GitHub workflow-command values before writing `::warning` or `::error` annotations.
 - Write multiline outputs with GitHub's multiline output syntax, not raw `name=value` lines.
 - Keep GitHub API calls bounded with explicit request timeouts and response-size limits.
