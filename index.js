@@ -53,13 +53,19 @@ function input(name, fallback = '') {
   return process.env[`INPUT_${name.toUpperCase()}`] ?? fallback
 }
 
-function boolInput(name, fallback) {
-  const raw = input(name, fallback ? 'true' : 'false')
+function commentModeInput(name, fallback = 'failures') {
+  return parseCommentMode(input(name, fallback))
+}
+
+function parseCommentMode(value) {
+  const raw = String(value ?? '')
     .trim()
     .toLowerCase()
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  throw new Error(`${name} must be true or false, got ${JSON.stringify(raw)}`)
+
+  if (raw === 'true' || raw === 'always') return 'always'
+  if (raw === 'false' || raw === 'never') return 'never'
+  if (raw === 'failure' || raw === 'failures') return 'failures'
+  throw new Error(`pr-comment must be true, false, or failures, got ${JSON.stringify(raw)}`)
 }
 
 function git(args) {
@@ -100,7 +106,97 @@ function writeVersionOutputs(result) {
   setOutput('minor-tag', result.minorTag)
 }
 
-async function runPullRequest({ payload, token, postComment, getCommits = getPRCommits, upsert = upsertComment }) {
+function appendStepSummary(content) {
+  const summaryFile = process.env['GITHUB_STEP_SUMMARY']
+  if (!summaryFile) return
+  fs.appendFileSync(summaryFile, `${content.trimEnd()}\n`)
+}
+
+function summaryText(value) {
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .replace(/`/g, "'")
+    .trim()
+}
+
+function summaryCode(value) {
+  return `\`${summaryText(value)}\``
+}
+
+function summaryCell(value, maxLen) {
+  let text = summaryText(value)
+  if (maxLen && text.length > maxLen) text = `${text.slice(0, maxLen - 1)}...`
+  return summaryCode(text.replace(/\|/g, '\\|'))
+}
+
+function titleFix(titleResult) {
+  if (titleResult.suggestion) return `Rename the PR title to ${summaryCode(titleResult.suggestion)}.`
+  return 'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
+}
+
+function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }) {
+  const titleBump = titleResult.valid ? titleResult.bumpLevel : 'invalid'
+  const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
+  const result = !titleResult.valid ? 'fail - invalid title' : hasConflict ? 'fail - bump conflict' : 'pass'
+  const lines = [
+    '## Intent Release Check',
+    '',
+    `**Result:** ${result}`,
+    `**PR title:** ${summaryCode(title || '(empty)')}`,
+    `**Title bump:** ${summaryCode(titleBump)}`,
+    `**Highest commit bump:** ${summaryCode(maxCommitBump)}`,
+  ]
+
+  if (commentStatus) lines.push(`**PR comment:** ${commentStatus}`)
+
+  if (!titleResult.valid) {
+    lines.push('', '**How to fix:**', titleFix(titleResult))
+  } else if (hasConflict) {
+    lines.push(
+      '',
+      '**How to fix:**',
+      `Update the PR title to signal a ${summaryCode(maxCommitBump)} bump, or amend the flagged commit(s) so they no longer require more than ${summaryCode(titleResult.bumpLevel)}.`,
+    )
+  }
+
+  if (commitAnalysis.length > 0) {
+    lines.push('', '| SHA | Subject | Bump |', '| :-- | :------ | :--: |')
+    for (const { sha, message, result: commitResult } of commitAnalysis.slice(0, 25)) {
+      const bump = commitResult.bumpLevel ?? 'none'
+      const marker = titleResult.valid && bumpGt(bump, titleResult.bumpLevel) ? ' (conflict)' : ''
+      lines.push(
+        `| ${summaryCode(String(sha ?? '').slice(0, 7))} | ${summaryCell(firstLine(message), 72)} | ${summaryCode(`${bump}${marker}`)} |`,
+      )
+    }
+    if (commitAnalysis.length > 25) {
+      lines.push(`| ... | ${summaryCode(`${commitAnalysis.length - 25} more commits`)} | ... |`)
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function buildVersionSummary(result) {
+  return [
+    '## Intent Release',
+    '',
+    `**Release needed:** ${summaryCode(String(result.releaseNeeded))}`,
+    `**Bump:** ${summaryCode(result.bumpLevel)}`,
+    `**Current version:** ${summaryCode(result.currentVersion)}`,
+    `**Next version:** ${summaryCode(result.nextVersion)}`,
+    `**Previous tag:** ${summaryCode(result.previousTag || '(none)')}`,
+    `**Release tag:** ${summaryCode(result.releaseTag)}`,
+    `**Floating tags:** ${summaryCode(result.majorTag)}, ${summaryCode(result.minorTag)}`,
+  ].join('\n')
+}
+
+async function runPullRequest({
+  payload,
+  token,
+  postComment = 'failures',
+  getCommits = getPRCommits,
+  upsert = upsertComment,
+}) {
   const pr = payload.pull_request
   if (!pr) throw new Error('pull_request payload is missing')
 
@@ -110,8 +206,9 @@ async function runPullRequest({ payload, token, postComment, getCommits = getPRC
   const title = pr.title ?? ''
   const prNumber = pr.number
   const titleResult = validate(title, { strict: true })
+  const commentMode = parseCommentMode(postComment)
 
-  log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${postComment}`)
+  log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${commentMode}`)
   log(`pr-title=${JSON.stringify(title)}`)
   log(`title-valid=${titleResult.valid} title-bump=${titleResult.bumpLevel ?? '-'}`)
 
@@ -134,33 +231,43 @@ async function runPullRequest({ payload, token, postComment, getCommits = getPRC
     const bump = result.bumpLevel ?? 'none'
     return bumpGt(bump, max) ? bump : max
   }, 'none')
+  const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
   log(`commits-analyzed=${commitAnalysis.length} max-commit-bump=${maxCommitBump}`)
 
-  if (postComment) {
+  const shouldPostComment =
+    commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict))
+  let commentStatus = 'skipped'
+  if (shouldPostComment) {
     try {
       await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }), [
         GENERATED_HEADER,
         GENERATED_FOOTER,
       ])
       log('comment=updated')
+      commentStatus = 'updated'
     } catch (err) {
       warn(describeCommentFailure(err))
       log('comment=failed')
+      commentStatus = 'failed'
     }
   } else {
-    log('comment=skipped reason=pr-comment-false')
+    const reason = commentMode === 'never' ? 'pr-comment-false' : 'pr-comment-failures-pass'
+    log(`comment=skipped reason=${reason}`)
+    commentStatus = commentMode === 'never' ? 'disabled' : 'not needed'
   }
 
+  appendStepSummary(buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }))
   setOutput('release-needed', String(titleResult.valid && titleResult.bumpLevel !== 'none'))
   setOutput('bump-level', titleResult.valid ? titleResult.bumpLevel : '')
 
   if (!titleResult.valid) {
     for (const err of titleResult.errors) fail(err)
+    fail(titleFix(titleResult))
     log('result=fail reason=invalid-title')
     process.exit(1)
   }
 
-  if (bumpGt(maxCommitBump, titleResult.bumpLevel)) {
+  if (hasConflict) {
     for (const { sha, message, result } of commitAnalysis) {
       if (bumpGt(result.bumpLevel ?? 'none', titleResult.bumpLevel)) {
         fail(
@@ -214,6 +321,7 @@ function runVersion() {
 
   const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix })
   writeVersionOutputs(result)
+  appendStepSummary(buildVersionSummary(result))
   log(
     `result=pass release-needed=${result.releaseNeeded} bump=${result.bumpLevel} current=${result.currentVersion} next=${result.nextVersion} release-tag=${result.releaseTag}`,
   )
@@ -240,7 +348,7 @@ async function main() {
     await runPullRequest({
       payload,
       token: input('GITHUB-TOKEN'),
-      postComment: boolInput('PR-COMMENT', true),
+      postComment: commentModeInput('PR-COMMENT', 'failures'),
     })
     return
   }
@@ -260,6 +368,7 @@ module.exports = {
   describeCommentFailure,
   escapeCommandValue,
   main,
+  parseCommentMode,
   runPullRequest,
   setOutput,
   validateTagComponent,

@@ -9,31 +9,31 @@ branding:
 
 inputs:
   github-token:
-    description: 'GitHub token required to list PR commits and post the PR comment.'
+    description: 'PR mode only. GitHub token used to list PR commits and post the PR comment. Defaults to github.token.'
     required: false
     default: ${{ github.token }}
   pr-comment:
-    description: 'Whether to create or update the explanatory PR comment on pull_request events.'
+    description: 'PR mode only. Comment policy: failures posts only when action is needed; true/always posts every run; false/never disables comments.'
     required: false
-    default: 'true'
+    default: 'failures'
   release-scope:
-    description: 'Tag namespace for scoped releases. Tags become <scope>/<prefix><version>.'
+    description: 'Push mode only. Tag namespace for scoped releases. Tags become <scope>/<prefix><version>.'
     required: false
     default: ''
   tag-prefix:
-    description: 'Prefix for version tags, for example v for v1.2.3.'
+    description: 'Push mode only. Prefix for version tags, for example v for v1.2.3.'
     required: false
     default: 'v'
   initial-version:
-    description: 'Version used when no matching release tag exists.'
+    description: 'Push mode only. Version used when no matching release tag exists.'
     required: false
     default: '0.0.0'
   release-paths:
-    description: 'Optional newline-separated paths that are allowed to contribute to push-mode version resolution.'
+    description: 'Push mode only. Optional newline-separated paths that are allowed to contribute to version resolution.'
     required: false
     default: ''
   release-ignore-paths:
-    description: 'Optional newline-separated paths that are ignored during push-mode version resolution.'
+    description: 'Push mode only. Optional newline-separated paths that are ignored during version resolution.'
     required: false
     default: ''
 

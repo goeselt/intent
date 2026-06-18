@@ -8,6 +8,7 @@ const path = require('node:path')
 const {
   describeCommentFailure,
   escapeCommandValue,
+  parseCommentMode,
   runPullRequest,
   setOutput,
   validateTagComponent,
@@ -49,6 +50,18 @@ async function captureStdout(fn) {
 
 test('escapeCommandValue escapes GitHub workflow command control characters', () => {
   assert.equal(escapeCommandValue('a%b\rc\nd'), 'a%25b%0Dc%0Ad')
+})
+
+test('parseCommentMode accepts legacy booleans and the failures mode', () => {
+  assert.equal(parseCommentMode('true'), 'always')
+  assert.equal(parseCommentMode(true), 'always')
+  assert.equal(parseCommentMode('always'), 'always')
+  assert.equal(parseCommentMode('false'), 'never')
+  assert.equal(parseCommentMode(false), 'never')
+  assert.equal(parseCommentMode('never'), 'never')
+  assert.equal(parseCommentMode('failures'), 'failures')
+  assert.equal(parseCommentMode('failure'), 'failures')
+  assert.throws(() => parseCommentMode('sometimes'), /true, false, or failures/)
 })
 
 test('validateTagComponent rejects values that can inject logs or outputs', () => {
@@ -150,4 +163,38 @@ test('runPullRequest accepts a missing comment permission and warns instead of f
   assert.match(output, /::warning title=Intent::could not post PR comment \(permission denied\)/)
   assert.match(output, /pull-requests: write/)
   assert.match(output, /result=pass/)
+})
+
+test('runPullRequest skips successful PR comments in failures mode and writes a step summary', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-summary-'))
+  const summaryFile = path.join(dir, 'summary')
+  const previousSummary = process.env.GITHUB_STEP_SUMMARY
+  process.env.GITHUB_STEP_SUMMARY = summaryFile
+  let commentCalled = false
+
+  try {
+    const output = await captureStdout(() =>
+      runPullRequest({
+        payload: payload(),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () => Promise.resolve([]),
+        upsert: () => {
+          commentCalled = true
+          return Promise.resolve()
+        },
+      }),
+    )
+
+    assert.equal(commentCalled, false)
+    assert.match(output, /comment=skipped reason=pr-comment-failures-pass/)
+    assert.match(fs.readFileSync(summaryFile, 'utf8'), /Result:\*\* pass/)
+  } finally {
+    if (previousSummary === undefined) {
+      delete process.env.GITHUB_STEP_SUMMARY
+    } else {
+      process.env.GITHUB_STEP_SUMMARY = previousSummary
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
