@@ -37,11 +37,14 @@ exit code. Prefer moving formatting into `comment.js` or `summary.js` and pure r
 - Do not run user-controlled data through a shell. Git calls use `execFileSync('git', args)`.
 - Escape GitHub workflow-command values before writing `::warning` or `::error` annotations.
 - Write multiline outputs with GitHub's multiline output syntax, not raw `name=value` lines.
+- Keep GitHub API calls bounded with explicit request timeouts and response-size limits.
 - Keep PR titles and commit subjects sanitized in comments and summaries. Avoid bare `@mentions` and broken Markdown
   tables.
 - Keep PR commit analysis fail-closed when GitHub may truncate the commit list at 250 commits.
-- Do not identify the sticky PR comment by the hidden marker alone when the posting identity is unknown. The visible
-  generated-comment header and footer are part of that safety boundary.
+- Do not identify the sticky PR comment by the hidden marker alone when the posting identity is unknown. The fallback
+  must require both a Bot author and the visible generated-comment header/footer.
+- Treat matching Git tags as trusted release state. The action may reject malformed SemVer tags, but repository rules
+  must protect the tag namespace from unauthorized creation or rewrites.
 
 ## Development Setup
 

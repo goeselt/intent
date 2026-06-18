@@ -50,6 +50,11 @@ contents in that job.
 needed and what the next version should be. The resolved release plan is written to the job summary and to action
 outputs.
 
+The latest matching Git tag is treated as release state. Protect the tag namespace used by `tag-prefix` and
+`release-scope` with repository rulesets or branch protection-equivalent tag rules. Anyone who can create or move
+matching tags can influence the next resolved version. Intent ignores malformed SemVer tags, but it cannot distinguish a
+legitimate release tag from an authorized-but-wrong tag after checkout.
+
 ```yaml
 on:
   push:

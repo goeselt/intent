@@ -6,7 +6,7 @@ const TYPE_ALIASES = { feature: 'feat', bug: 'fix', performance: 'perf', doc: 'd
 const BUMP_ORDER = { none: 0, patch: 1, minor: 2, major: 3 }
 const HEADER_RE = /^([a-z]+)(\([^)]+\))?(!)?: (.*)$/
 const BREAKING_FOOTER_RE = /^BREAKING[ -]CHANGE:/
-const SEMVER_RE = /^\d+\.\d+\.\d+$/
+const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
 function bumpGt(a, b) {
   return (BUMP_ORDER[a] ?? -1) > (BUMP_ORDER[b] ?? -1)
@@ -103,10 +103,26 @@ function maxBump(messages) {
 }
 
 function parseSemver(version) {
-  if (!SEMVER_RE.test(version)) {
+  const match = String(version ?? '').match(SEMVER_RE)
+  if (!match) {
     throw new Error(`invalid semantic version ${JSON.stringify(version)}: expected major.minor.patch`)
   }
-  return version.split('.').map((part) => Number.parseInt(part, 10))
+  return match.slice(1).map((part) => {
+    const value = Number.parseInt(part, 10)
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`invalid semantic version ${JSON.stringify(version)}: version number is too large`)
+    }
+    return value
+  })
+}
+
+function isValidSemver(version) {
+  try {
+    parseSemver(version)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function applyBump(version, bump) {
@@ -132,7 +148,7 @@ function findLatestTag(tagOutput, scope, prefix) {
     if (!tag.startsWith(base)) continue
 
     const version = tag.slice(base.length)
-    if (SEMVER_RE.test(version)) return tag
+    if (isValidSemver(version)) return tag
   }
   return ''
 }

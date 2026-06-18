@@ -66,6 +66,8 @@ test('parseSemver accepts only strict major.minor.patch versions', () => {
   assert.deepEqual(parseSemver('1.2.3'), [1, 2, 3])
   assert.throws(() => parseSemver('1.2'), /invalid semantic version/)
   assert.throws(() => parseSemver('v1.2.3'), /invalid semantic version/)
+  assert.throws(() => parseSemver('01.2.3'), /invalid semantic version/)
+  assert.throws(() => parseSemver('9007199254740992.0.0'), /too large/)
 })
 
 test('applyBump increments semantic versions', () => {
@@ -79,6 +81,7 @@ test('findLatestTag returns first matching stable semver tag', () => {
   assert.equal(findLatestTag('v2.0.0\nv1.0.0\n', '', 'v'), 'v2.0.0')
   assert.equal(findLatestTag('tool/v1.2.0\ntool/v1.1.0\n', 'tool', 'v'), 'tool/v1.2.0')
   assert.equal(findLatestTag('v2.0.0-beta\nv1.0.0\n', '', 'v'), 'v1.0.0')
+  assert.equal(findLatestTag('v9007199254740992.0.0\nv1.0.0\n', '', 'v'), 'v1.0.0')
   assert.equal(findLatestTag('1.2.0\n1.1.0\n', '', ''), '1.2.0')
   assert.equal(findLatestTag('other\n', '', 'v'), '')
 })
