@@ -2,9 +2,18 @@
 
 const https = require('node:https')
 
+const REQUEST_TIMEOUT_MS = 15_000
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+
 function request(method, path, token, body) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined
+    let settled = false
+    const settle = (fn, value) => {
+      if (settled) return
+      settled = true
+      fn(value)
+    }
     const options = {
       hostname: 'api.github.com',
       path,
@@ -20,18 +29,33 @@ function request(method, path, token, body) {
 
     const req = https.request(options, (res) => {
       const chunks = []
-      res.on('data', (c) => chunks.push(c))
+      let bytes = 0
+      res.on('data', (c) => {
+        bytes += c.length
+        if (bytes > MAX_RESPONSE_BYTES) {
+          req.destroy(new Error(`GitHub API ${method} ${path} response exceeded ${MAX_RESPONSE_BYTES} bytes`))
+          return
+        }
+        chunks.push(c)
+      })
       res.on('end', () => {
         const raw = Buffer.concat(chunks).toString()
         if (res.statusCode >= 400) {
-          reject(new Error(`GitHub API ${method} ${path} --> HTTP ${res.statusCode}: ${raw}`))
+          settle(reject, new Error(`GitHub API ${method} ${path} --> HTTP ${res.statusCode}: ${raw}`))
           return
         }
-        resolve(raw ? JSON.parse(raw) : null)
+        try {
+          settle(resolve, raw ? JSON.parse(raw) : null)
+        } catch (err) {
+          settle(reject, new Error(`GitHub API ${method} ${path} returned invalid JSON: ${err.message}`))
+        }
       })
     })
 
-    req.on('error', reject)
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`GitHub API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS}ms`))
+    })
+    req.on('error', (err) => settle(reject, err))
     if (payload) req.write(payload)
     req.end()
   })
@@ -41,20 +65,28 @@ function request(method, path, token, body) {
 // https://docs.github.com/en/rest/pulls/pulls#list-commits-on-a-pull-request
 const MAX_PR_COMMITS = 250
 
-// Matches the action's own sticky comment. The marker is the primary identity. When the author login is known
-// it is also required, so a stray comment from someone else that happens to carry the marker is not edited.
-// When the login could not be resolved (see authenticatedLogin), match on the marker alone.
-function commentMatches(comment, marker, authorLogin) {
+// Matches the action's own sticky comment. The marker is the primary identity. When the author login is known it is
+// also required, so a stray comment from someone else that happens to carry the marker is not edited. When the login
+// could not be resolved (see authenticatedLogin), only match Bot-authored comments that also carry the visible
+// generated-comment sentinels. That preserves sticky comments for GITHUB_TOKEN/App tokens without letting a human PR
+// author claim the marker and get their comment overwritten.
+function commentMatches(comment, marker, authorLogin, generatedSentinels = []) {
   if (typeof comment?.body !== 'string' || !comment.body.includes(marker)) return false
-  if (!authorLogin) return true
+  if (!authorLogin) {
+    return (
+      comment?.user?.type === 'Bot' &&
+      generatedSentinels.length > 0 &&
+      generatedSentinels.every((sentinel) => comment.body.includes(sentinel))
+    )
+  }
   return typeof comment?.user?.login === 'string' && comment.user.login === authorLogin
 }
 
 // Resolves the login the action posts under, so upsert only edits its own comment.
 // The default GITHUB_TOKEN is a GitHub App installation token, and GitHub rejects GET /user for it with
 // "HTTP 403 Resource not accessible by integration". A custom App token behaves the same way. Treat any 4xx
-// as "identity unavailable" and fall back to marker-only matching; let network/5xx errors propagate so a real
-// outage surfaces immediately rather than silently posting a duplicate comment.
+// as "identity unavailable"; let network/5xx errors propagate so a real outage surfaces immediately rather than
+// silently posting a duplicate comment.
 async function authenticatedLogin(token) {
   try {
     const viewer = await request('GET', '/user', token)
@@ -76,7 +108,7 @@ async function getPRCommits(token, repo, prNumber) {
   return commits
 }
 
-async function upsertComment(token, repo, prNumber, marker, body) {
+async function upsertComment(token, repo, prNumber, marker, body, generatedSentinels = []) {
   const authorLogin = await authenticatedLogin(token)
 
   // Find existing bot comment
@@ -85,7 +117,7 @@ async function upsertComment(token, repo, prNumber, marker, body) {
   for (;;) {
     const batch = await request('GET', `/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`, token)
     if (!Array.isArray(batch) || batch.length === 0) break
-    existing = batch.find((c) => commentMatches(c, marker, authorLogin)) ?? null
+    existing = batch.find((c) => commentMatches(c, marker, authorLogin, generatedSentinels)) ?? null
     if (existing || batch.length < 100) break
     page++
   }
@@ -106,4 +138,13 @@ function normalize(text) {
   return String(text ?? '').replace(/\r\n/g, '\n')
 }
 
-module.exports = { authenticatedLogin, commentMatches, getPRCommits, upsertComment, MAX_PR_COMMITS }
+module.exports = {
+  authenticatedLogin,
+  commentMatches,
+  getPRCommits,
+  request,
+  upsertComment,
+  MAX_PR_COMMITS,
+  MAX_RESPONSE_BYTES,
+  REQUEST_TIMEOUT_MS,
+}

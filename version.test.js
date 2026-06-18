@@ -13,6 +13,7 @@ const {
   maxBump,
   parseCommitLog,
   parsePaths,
+  parseReservedTags,
   parseSemver,
   resolveVersion,
   validate,
@@ -28,7 +29,8 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
     ['fix: update\n\nBREAKING-CHANGE: new format', 'major'],
     ['docs: update readme', 'none'],
     ['chore: update deps', 'none'],
-    ['feature: add alias support', 'minor'],
+    ['feature: add alias support', 'none'],
+    ['FEAT: add uppercase type', 'none'],
     ['just a message', 'none'],
     ['feat:', 'none'],
     ['', 'none'],
@@ -39,20 +41,34 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
   }
 })
 
-test('validate rejects aliases in strict mode and suggests canonical title', () => {
-  assert.deepEqual(validate('feature: add login', { strict: true }), {
+test('validate rejects non-canonical aliases as unknown types', () => {
+  assert.deepEqual(validate('feature: add login'), {
     valid: false,
     bumpLevel: null,
-    errors: ['type "feature" is not recognized by downstream release tools; use "feat"'],
-    suggestion: 'feat: add login',
+    errors: [
+      'unknown type "feature"',
+      'allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test',
+    ],
   })
 })
 
-test('validate accepts canonical PR titles in strict mode', () => {
-  assert.deepEqual(validate('feat(auth)!: remove legacy login', { strict: true }), {
+test('validate accepts only canonical PR titles', () => {
+  assert.deepEqual(validate('feat(auth)!: remove legacy login'), {
     valid: true,
     bumpLevel: 'major',
     errors: [],
+  })
+})
+
+test('validate rejects uppercase conventional commit types', () => {
+  assert.deepEqual(validate('FEAT: add login'), {
+    valid: false,
+    bumpLevel: null,
+    errors: [
+      'title does not match <type>[scope][!]: <description>',
+      'got: FEAT: add login',
+      'allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test',
+    ],
   })
 })
 
@@ -66,6 +82,8 @@ test('parseSemver accepts only strict major.minor.patch versions', () => {
   assert.deepEqual(parseSemver('1.2.3'), [1, 2, 3])
   assert.throws(() => parseSemver('1.2'), /invalid semantic version/)
   assert.throws(() => parseSemver('v1.2.3'), /invalid semantic version/)
+  assert.throws(() => parseSemver('01.2.3'), /invalid semantic version/)
+  assert.throws(() => parseSemver('9007199254740992.0.0'), /too large/)
 })
 
 test('applyBump increments semantic versions', () => {
@@ -79,6 +97,7 @@ test('findLatestTag returns first matching stable semver tag', () => {
   assert.equal(findLatestTag('v2.0.0\nv1.0.0\n', '', 'v'), 'v2.0.0')
   assert.equal(findLatestTag('tool/v1.2.0\ntool/v1.1.0\n', 'tool', 'v'), 'tool/v1.2.0')
   assert.equal(findLatestTag('v2.0.0-beta\nv1.0.0\n', '', 'v'), 'v1.0.0')
+  assert.equal(findLatestTag('v9007199254740992.0.0\nv1.0.0\n', '', 'v'), 'v1.0.0')
   assert.equal(findLatestTag('1.2.0\n1.1.0\n', '', ''), '1.2.0')
   assert.equal(findLatestTag('other\n', '', 'v'), '')
 })
@@ -94,11 +113,15 @@ test('formatTags formats release and floating tags', () => {
     releaseTag: 'v1.2.3',
     majorTag: 'v1',
     minorTag: 'v1.2',
+    majorVersion: '1',
+    minorVersion: '1.2',
   })
   assert.deepEqual(formatTags('1.2.3', 'tool', 'v'), {
     releaseTag: 'tool/v1.2.3',
     majorTag: 'tool/v1',
     minorTag: 'tool/v1.2',
+    majorVersion: '1',
+    minorVersion: '1.2',
   })
 })
 
@@ -108,6 +131,17 @@ test('parseCommitLog reads nul-delimited git log output', () => {
 
 test('parsePaths trims newline-separated path filters', () => {
   assert.deepEqual(parsePaths('src/\n\n docs/readme.md \n'), ['src/', 'docs/readme.md'])
+})
+
+test('parseReservedTags accepts comma, whitespace, and newline separated release tags', () => {
+  assert.deepEqual(parseReservedTags('v1.2.3, v1.2.4\nv1.2.4 v1.2.5'), ['v1.2.3', 'v1.2.4', 'v1.2.5'])
+})
+
+test('parseReservedTags validates tags against the configured release namespace', () => {
+  assert.deepEqual(parseReservedTags('cli/v1.2.3', { scope: 'cli', prefix: 'v' }), ['cli/v1.2.3'])
+  assert.throws(() => parseReservedTags('v1.2.3', { scope: 'cli', prefix: 'v' }), /cli\/v<major\.minor\.patch>/)
+  assert.throws(() => parseReservedTags('v1.2', { prefix: 'v' }), /v<major\.minor\.patch>/)
+  assert.throws(() => parseReservedTags('not-a-version', { prefix: 'v' }), /v<major\.minor\.patch>/)
 })
 
 test('buildReleasePathspecs combines include and ignore path filters', () => {
@@ -160,9 +194,12 @@ test('resolveVersion combines tags and commits into action outputs', () => {
       currentVersion: '1.2.3',
       nextVersion: '1.2.4',
       previousTag: 'v1.2.3',
+      reservedTagsSkipped: [],
       releaseTag: 'v1.2.4',
       majorTag: 'v1',
       minorTag: 'v1.2',
+      majorVersion: '1',
+      minorVersion: '1.2',
     },
   )
 })
@@ -176,4 +213,28 @@ test('resolveVersion keeps current version when there is no release bump', () =>
   assert.equal(result.releaseNeeded, false)
   assert.equal(result.bumpLevel, 'none')
   assert.equal(result.nextVersion, '1.2.3')
+})
+
+test('resolveVersion skips reserved release tags and uses the next patch alternative', () => {
+  assert.deepEqual(
+    resolveVersion({
+      initialVersion: '0.0.0',
+      tagOutput: 'v1.2.2\n',
+      commitMessages: ['fix: bug'],
+      reservedTags: ['v1.2.3', 'v1.2.4'],
+    }),
+    {
+      releaseNeeded: true,
+      bumpLevel: 'patch',
+      currentVersion: '1.2.2',
+      nextVersion: '1.2.5',
+      previousTag: 'v1.2.2',
+      reservedTagsSkipped: ['v1.2.3', 'v1.2.4'],
+      releaseTag: 'v1.2.5',
+      majorTag: 'v1',
+      minorTag: 'v1.2',
+      majorVersion: '1',
+      minorVersion: '1.2',
+    },
+  )
 })

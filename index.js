@@ -1,9 +1,11 @@
 'use strict'
 
 const fs = require('node:fs')
+const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
-const { buildComment, MARKER } = require('./comment.js')
+const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
 const { getPRCommits, upsertComment, MAX_PR_COMMITS } = require('./github.js')
+const { buildPullRequestSummary, buildVersionSummary, titleFix } = require('./summary.js')
 const {
   analyzeCommit,
   buildLogArgs,
@@ -13,9 +15,12 @@ const {
   firstLine,
   parseCommitLog,
   parsePaths,
+  parseReservedTags,
   resolveVersion,
   validate,
 } = require('./version.js')
+
+// --- Logging and workflow commands -----------------------------------------------------------------------------------
 
 // Diagnostic markers. Narrative lines carry a greppable `[intent]` prefix;
 // problems use GitHub workflow-command annotations (which also carry `Intent` so they stay greppable).
@@ -48,17 +53,25 @@ function describeCommentFailure(err) {
   return `could not post PR comment: ${err.message}`
 }
 
+// --- Inputs, files, and shell boundaries -----------------------------------------------------------------------------
+
 function input(name, fallback = '') {
   return process.env[`INPUT_${name.toUpperCase()}`] ?? fallback
 }
 
-function boolInput(name, fallback) {
-  const raw = input(name, fallback ? 'true' : 'false')
+function commentModeInput(name, fallback = 'failures') {
+  return parseCommentMode(input(name, fallback))
+}
+
+function parseCommentMode(value) {
+  const raw = String(value ?? '')
     .trim()
     .toLowerCase()
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  throw new Error(`${name} must be true or false, got ${JSON.stringify(raw)}`)
+
+  if (raw === 'true' || raw === 'always') return 'always'
+  if (raw === 'false' || raw === 'never') return 'never'
+  if (raw === 'failure' || raw === 'failures') return 'failures'
+  throw new Error(`pr-comment must be true, false, or failures, got ${JSON.stringify(raw)}`)
 }
 
 function git(args) {
@@ -78,7 +91,14 @@ function isPREvent(eventName) {
 function setOutput(name, value) {
   const outputFile = process.env['GITHUB_OUTPUT']
   if (!outputFile) return
-  fs.appendFileSync(outputFile, `${name}=${value}\n`)
+  const text = String(value ?? '')
+  if (!/[\r\n]/.test(text)) {
+    fs.appendFileSync(outputFile, `${name}=${text}\n`)
+    return
+  }
+
+  const delimiter = `intent_${crypto.randomUUID().replace(/-/g, '')}`
+  fs.appendFileSync(outputFile, `${name}<<${delimiter}\n${text}\n${delimiter}\n`)
 }
 
 function writeVersionOutputs(result) {
@@ -90,9 +110,34 @@ function writeVersionOutputs(result) {
   setOutput('release-tag', result.releaseTag)
   setOutput('major-tag', result.majorTag)
   setOutput('minor-tag', result.minorTag)
+  setOutput('major-version', result.majorVersion)
+  setOutput('minor-version', result.minorVersion)
 }
 
-async function runPullRequest({ payload, token, postComment, getCommits = getPRCommits, upsert = upsertComment }) {
+function describeReservedTagsSkipped(result) {
+  const skipped = result.reservedTagsSkipped ?? []
+  if (skipped.length === 0) return ''
+
+  const prefix =
+    skipped.length === 1 ? 'reserved release tag skipped' : `${skipped.length} reserved release tags skipped`
+  return `${prefix}; using ${JSON.stringify(result.releaseTag)} instead`
+}
+
+function appendStepSummary(content) {
+  const summaryFile = process.env['GITHUB_STEP_SUMMARY']
+  if (!summaryFile) return
+  fs.appendFileSync(summaryFile, `${content.trimEnd()}\n`)
+}
+
+// --- Modes -----------------------------------------------------------------------------------------------------------
+
+async function runPullRequest({
+  payload,
+  token,
+  postComment = 'failures',
+  getCommits = getPRCommits,
+  upsert = upsertComment,
+}) {
   const pr = payload.pull_request
   if (!pr) throw new Error('pull_request payload is missing')
 
@@ -101,9 +146,10 @@ async function runPullRequest({ payload, token, postComment, getCommits = getPRC
 
   const title = pr.title ?? ''
   const prNumber = pr.number
-  const titleResult = validate(title, { strict: true })
+  const titleResult = validate(title)
+  const commentMode = parseCommentMode(postComment)
 
-  log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${postComment}`)
+  log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${commentMode}`)
   log(`pr-title=${JSON.stringify(title)}`)
   log(`title-valid=${titleResult.valid} title-bump=${titleResult.bumpLevel ?? '-'}`)
 
@@ -126,30 +172,43 @@ async function runPullRequest({ payload, token, postComment, getCommits = getPRC
     const bump = result.bumpLevel ?? 'none'
     return bumpGt(bump, max) ? bump : max
   }, 'none')
+  const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
   log(`commits-analyzed=${commitAnalysis.length} max-commit-bump=${maxCommitBump}`)
 
-  if (postComment) {
+  const shouldPostComment =
+    commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict))
+  let commentStatus
+  if (shouldPostComment) {
     try {
-      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }))
+      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }), [
+        GENERATED_HEADER,
+        GENERATED_FOOTER,
+      ])
       log('comment=updated')
+      commentStatus = 'updated'
     } catch (err) {
       warn(describeCommentFailure(err))
       log('comment=failed')
+      commentStatus = 'failed'
     }
   } else {
-    log('comment=skipped reason=pr-comment-false')
+    const reason = commentMode === 'never' ? 'pr-comment-false' : 'pr-comment-failures-pass'
+    log(`comment=skipped reason=${reason}`)
+    commentStatus = commentMode === 'never' ? 'disabled' : 'not needed'
   }
 
+  appendStepSummary(buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }))
   setOutput('release-needed', String(titleResult.valid && titleResult.bumpLevel !== 'none'))
   setOutput('bump-level', titleResult.valid ? titleResult.bumpLevel : '')
 
   if (!titleResult.valid) {
     for (const err of titleResult.errors) fail(err)
+    fail(titleFix(titleResult))
     log('result=fail reason=invalid-title')
     process.exit(1)
   }
 
-  if (bumpGt(maxCommitBump, titleResult.bumpLevel)) {
+  if (hasConflict) {
     for (const { sha, message, result } of commitAnalysis) {
       if (bumpGt(result.bumpLevel ?? 'none', titleResult.bumpLevel)) {
         fail(
@@ -171,11 +230,7 @@ function runVersion() {
   const initialVersion = input('INITIAL-VERSION', '0.0.0')
   const releasePaths = parsePaths(input('RELEASE-PATHS'))
   const releaseIgnorePaths = parsePaths(input('RELEASE-IGNORE-PATHS'))
-
-  log('mode=version')
-  log(`inputs release-scope=${scope || '-'} tag-prefix=${prefix || '-'} initial-version=${initialVersion}`)
-  if (releasePaths.length > 0) log(`release-paths=${releasePaths.join(' ')}`)
-  if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
+  const reservedTagsInput = input('RESERVED-TAGS')
 
   // The tag pattern is interpolated into `git tag --list` before any `--`, so a leading dash would be parsed as a flag.
   // Reject it (inputs are trusted, but this keeps a misconfiguration from silently turning into an option).
@@ -183,8 +238,20 @@ function runVersion() {
     ['tag-prefix', prefix],
     ['release-scope', scope],
   ]) {
-    if (value.startsWith('-')) throw new Error(`${name} must not start with "-", got ${JSON.stringify(value)}`)
+    validateTagComponent(name, value)
   }
+  validateNoControlCharacters('initial-version', initialVersion)
+  releasePaths.forEach((path, index) => validateNoControlCharacters(`release-paths entry ${index + 1}`, path))
+  releaseIgnorePaths.forEach((path, index) =>
+    validateNoControlCharacters(`release-ignore-paths entry ${index + 1}`, path),
+  )
+  const reservedTags = parseReservedTags(reservedTagsInput, { scope, prefix })
+
+  log('mode=version')
+  log(`inputs release-scope=${scope || '-'} tag-prefix=${prefix || '-'} initial-version=${initialVersion}`)
+  if (releasePaths.length > 0) log(`release-paths=${releasePaths.join(' ')}`)
+  if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
+  if (reservedTags.length > 0) log(`reserved-tags=${reservedTags.length} configured`)
 
   const tagPattern = scope ? `${scope}/${prefix}*` : `${prefix}*`
   const tagOutput = git(['tag', '--list', tagPattern, '--sort=-v:refname'])
@@ -196,11 +263,35 @@ function runVersion() {
   const commitMessages = parseCommitLog(git(buildLogArgs(previousTag, pathspecs)))
   log(`commits-analyzed=${commitMessages.length}`)
 
-  const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix })
+  const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix, reservedTags })
+  const reservedTagWarning = describeReservedTagsSkipped(result)
+  if (reservedTagWarning) warn(reservedTagWarning)
   writeVersionOutputs(result)
+  appendStepSummary(buildVersionSummary(result))
   log(
     `result=pass release-needed=${result.releaseNeeded} bump=${result.bumpLevel} current=${result.currentVersion} next=${result.nextVersion} release-tag=${result.releaseTag}`,
   )
+}
+
+function validateTagComponent(name, value) {
+  const text = String(value ?? '')
+  if (text.startsWith('-')) throw new Error(`${name} must not start with "-", got ${JSON.stringify(text)}`)
+  validateNoControlCharacters(name, text)
+}
+
+function validateNoControlCharacters(name, value) {
+  const text = String(value ?? '')
+  if (hasControlCharacters(text)) {
+    throw new Error(`${name} must not contain control characters, got ${JSON.stringify(text)}`)
+  }
+}
+
+function hasControlCharacters(text) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
 }
 
 async function main() {
@@ -211,7 +302,7 @@ async function main() {
     await runPullRequest({
       payload,
       token: input('GITHUB-TOKEN'),
-      postComment: boolInput('PR-COMMENT', true),
+      postComment: commentModeInput('PR-COMMENT', 'failures'),
     })
     return
   }
@@ -229,7 +320,12 @@ if (require.main === module) {
 
 module.exports = {
   describeCommentFailure,
+  describeReservedTagsSkipped,
   escapeCommandValue,
   main,
+  parseCommentMode,
   runPullRequest,
+  setOutput,
+  validateTagComponent,
+  validateNoControlCharacters,
 }
