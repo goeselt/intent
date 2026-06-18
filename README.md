@@ -1,8 +1,7 @@
 # Intent
 
 GitHub Action that validates pull request release intent and resolves the next semantic version from
-[Conventional Commit](https://www.conventionalcommits.org/) history. Use it as
-[`goeselt/intent`](https://github.com/goeselt/intent).
+[Conventional Commit](https://www.conventionalcommits.org/) history.
 
 Designed for squash-merge workflows: the PR title is the release signal, and the default-branch commit history drives
 the concrete version.
