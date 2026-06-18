@@ -41,6 +41,22 @@ jobs:
         with:
           initial-version: '1.0.0'
 
+      - name: Bump Version
+        if: steps.intent.outputs.release-needed == 'true'
+        env:
+          VERSION: ${{ steps.intent.outputs.next-version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Commit Version
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: ./
+        with:
+          files: package.json
+          message: 'chore: release ${{ steps.intent.outputs.release-tag }}'
+          git-user-name: ${{ vars.RELEASE_SIGNING_USER }}
+          git-user-email: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          signing-key: ${{ secrets.RELEASE_SIGNING_KEY }}
+
       - name: Release
         if: steps.intent.outputs.release-needed == 'true'
         uses: goeselt/dispatch@f82290ff964eaff66e9ef014d1f16fd3833ffb58 # v1.0.4

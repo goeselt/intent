@@ -20,7 +20,7 @@ const {
   validate,
 } = require('./version.js')
 
-// --- Logging and workflow commands ----------------------------------------------------------------------------------
+// --- Logging and workflow commands -----------------------------------------------------------------------------------
 
 // Diagnostic markers. Narrative lines carry a greppable `[intent]` prefix;
 // problems use GitHub workflow-command annotations (which also carry `Intent` so they stay greppable).
@@ -53,7 +53,7 @@ function describeCommentFailure(err) {
   return `could not post PR comment: ${err.message}`
 }
 
-// --- Inputs, files, and shell boundaries ----------------------------------------------------------------------------
+// --- Inputs, files, and shell boundaries -----------------------------------------------------------------------------
 
 function input(name, fallback = '') {
   return process.env[`INPUT_${name.toUpperCase()}`] ?? fallback
@@ -129,7 +129,7 @@ function appendStepSummary(content) {
   fs.appendFileSync(summaryFile, `${content.trimEnd()}\n`)
 }
 
-// --- Modes ----------------------------------------------------------------------------------------------------------
+// --- Modes -----------------------------------------------------------------------------------------------------------
 
 async function runPullRequest({
   payload,
