@@ -59,7 +59,7 @@ jobs:
 
       - name: Release
         if: steps.intent.outputs.release-needed == 'true'
-        uses: goeselt/dispatch@08a74b01bfe25e6b6201923e90e0b4b0e0425a67 # v1.0.5
+        uses: goeselt/dispatch@300efd719ae6ba24758bb24a9df097c9c5f87dd9 # v1.1.0
         with:
           release-tag: ${{ steps.intent.outputs.release-tag }}
           major-tag: ${{ steps.intent.outputs.major-tag }}

@@ -23,20 +23,24 @@ function titleFix() {
   return 'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
 }
 
+function fieldTable(rows) {
+  return ['| Field | Value |', '| :-- | :-- |', ...rows.map(([field, value]) => `| ${field} | ${value} |`)]
+}
+
 function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }) {
   const titleBump = titleResult.valid ? titleResult.bumpLevel : 'invalid'
   const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
   const result = !titleResult.valid ? 'fail - invalid title' : hasConflict ? 'fail - bump conflict' : 'pass'
-  const lines = [
-    '## Intent Release Check',
-    '',
-    `**Result:** ${result}`,
-    `**PR title:** ${code(title || '(empty)')}`,
-    `**Title bump:** ${code(titleBump)}`,
-    `**Highest commit bump:** ${code(maxCommitBump)}`,
+  const rows = [
+    ['Result', cell(result)],
+    ['PR title', cell(title || '(empty)', 120)],
+    ['Title bump', cell(titleBump)],
+    ['Highest commit bump', cell(maxCommitBump)],
   ]
 
-  if (commentStatus) lines.push(`**PR comment:** ${commentStatus}`)
+  if (commentStatus) rows.push(['PR comment', cell(commentStatus)])
+
+  const lines = ['## Intent Release Check', '', ...fieldTable(rows)]
 
   if (!titleResult.valid) {
     lines.push('', '**How to fix:**', titleFix(titleResult))
@@ -66,25 +70,23 @@ function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommit
 }
 
 function buildVersionSummary(result) {
-  const lines = [
-    '## Intent Release',
-    '',
-    `**Release needed:** ${code(String(result.releaseNeeded))}`,
-    `**Bump:** ${code(result.bumpLevel)}`,
-    `**Current version:** ${code(result.currentVersion)}`,
-    `**Next version:** ${code(result.nextVersion)}`,
-    `**Previous tag:** ${code(result.previousTag || '(none)')}`,
-    `**Release tag:** ${code(result.releaseTag)}`,
-    `**Floating tags:** ${code(result.majorTag)}, ${code(result.minorTag)}`,
-    `**Floating versions:** ${code(result.majorVersion)}, ${code(result.minorVersion)}`,
+  const rows = [
+    ['Release needed', cell(String(result.releaseNeeded))],
+    ['Bump', cell(result.bumpLevel)],
+    ['Current version', cell(result.currentVersion)],
+    ['Next version', cell(result.nextVersion)],
+    ['Previous tag', cell(result.previousTag || '(none)')],
+    ['Release tag', cell(result.releaseTag)],
+    ['Floating tags', `${cell(result.majorTag)}, ${cell(result.minorTag)}`],
+    ['Floating versions', `${cell(result.majorVersion)}, ${cell(result.minorVersion)}`],
   ]
 
   if (result.reservedTagsSkipped?.length > 0) {
-    lines.push(
-      `**Skipped reserved tags:** ${code(String(result.reservedTagsSkipped.length))}`,
-      `**Reserved tag alternative:** ${code(result.releaseTag)}`,
-    )
+    rows.push(['Skipped reserved tags', cell(String(result.reservedTagsSkipped.length))])
+    rows.push(['Reserved tag alternative', cell(result.releaseTag)])
   }
+
+  const lines = ['## Intent Release', '', ...fieldTable(rows)]
 
   return lines.join('\n')
 }

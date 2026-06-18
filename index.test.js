@@ -217,7 +217,7 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
 
     assert.equal(commentCalled, false)
     assert.match(output, /comment=skipped reason=pr-comment-failures-pass/)
-    assert.match(fs.readFileSync(summaryFile, 'utf8'), /Result:\*\* pass/)
+    assert.match(fs.readFileSync(summaryFile, 'utf8'), /\| Result \| `pass` \|/)
   } finally {
     if (previousSummary === undefined) {
       delete process.env.GITHUB_STEP_SUMMARY
