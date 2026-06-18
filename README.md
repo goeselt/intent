@@ -78,15 +78,15 @@ jobs:
 
 ## Inputs
 
-| Input                  | Default | Mode | Description                                                          |
-| ---------------------- | ------- | ---- | -------------------------------------------------------------------- |
+| Input                  | Default    | Mode | Description                                                          |
+| ---------------------- | ---------- | ---- | -------------------------------------------------------------------- |
 | `github-token`         | token      | PR   | Token used to list PR commits and post the PR comment.               |
 | `pr-comment`           | `failures` | PR   | Comment policy: `failures`, `true`/`always`, or `false`/`never`.     |
-| `release-scope`        |         | push | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
-| `tag-prefix`           | `v`     | push | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
-| `initial-version`      | `0.0.0` | push | Version used when no matching release tag exists yet.                |
-| `release-paths`        |         | push | Newline-separated paths allowed to contribute to version resolution. |
-| `release-ignore-paths` |         | push | Newline-separated paths excluded from version resolution.            |
+| `release-scope`        |            | push | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
+| `tag-prefix`           | `v`        | push | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
+| `initial-version`      | `0.0.0`    | push | Version used when no matching release tag exists yet.                |
+| `release-paths`        |            | push | Newline-separated paths allowed to contribute to version resolution. |
+| `release-ignore-paths` |            | push | Newline-separated paths excluded from version resolution.            |
 
 `release-paths` and `release-ignore-paths` accept Git pathspecs, one per line. When `release-paths` is set, only commits
 touching those paths can contribute a bump. When `release-ignore-paths` is set, commits touching only ignored paths are

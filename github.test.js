@@ -20,10 +20,7 @@ test('commentMatches requires the generated signature when the author login is u
   const marker = '<!-- intent -->'
   const signedBody = `${marker}\n\n${GENERATED_HEADER}\n\nbody\n\n${GENERATED_FOOTER}`
   assert.equal(
-    commentMatches({ body: signedBody, user: { login: 'anyone' } }, marker, '', [
-      GENERATED_HEADER,
-      GENERATED_FOOTER,
-    ]),
+    commentMatches({ body: signedBody, user: { login: 'anyone' } }, marker, '', [GENERATED_HEADER, GENERATED_FOOTER]),
     true,
   )
   assert.equal(

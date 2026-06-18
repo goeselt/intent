@@ -5,6 +5,7 @@ const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
 const { getPRCommits, upsertComment, MAX_PR_COMMITS } = require('./github.js')
+const { buildPullRequestSummary, buildVersionSummary, titleFix } = require('./summary.js')
 const {
   analyzeCommit,
   buildLogArgs,
@@ -17,6 +18,8 @@ const {
   resolveVersion,
   validate,
 } = require('./version.js')
+
+// --- Logging and workflow commands ----------------------------------------------------------------------------------
 
 // Diagnostic markers. Narrative lines carry a greppable `[intent]` prefix;
 // problems use GitHub workflow-command annotations (which also carry `Intent` so they stay greppable).
@@ -48,6 +51,8 @@ function describeCommentFailure(err) {
   }
   return `could not post PR comment: ${err.message}`
 }
+
+// --- Inputs, files, and shell boundaries ----------------------------------------------------------------------------
 
 function input(name, fallback = '') {
   return process.env[`INPUT_${name.toUpperCase()}`] ?? fallback
@@ -112,83 +117,7 @@ function appendStepSummary(content) {
   fs.appendFileSync(summaryFile, `${content.trimEnd()}\n`)
 }
 
-function summaryText(value) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/`/g, "'")
-    .trim()
-}
-
-function summaryCode(value) {
-  return `\`${summaryText(value)}\``
-}
-
-function summaryCell(value, maxLen) {
-  let text = summaryText(value)
-  if (maxLen && text.length > maxLen) text = `${text.slice(0, maxLen - 1)}...`
-  return summaryCode(text.replace(/\|/g, '\\|'))
-}
-
-function titleFix(titleResult) {
-  if (titleResult.suggestion) return `Rename the PR title to ${summaryCode(titleResult.suggestion)}.`
-  return 'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
-}
-
-function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }) {
-  const titleBump = titleResult.valid ? titleResult.bumpLevel : 'invalid'
-  const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
-  const result = !titleResult.valid ? 'fail - invalid title' : hasConflict ? 'fail - bump conflict' : 'pass'
-  const lines = [
-    '## Intent Release Check',
-    '',
-    `**Result:** ${result}`,
-    `**PR title:** ${summaryCode(title || '(empty)')}`,
-    `**Title bump:** ${summaryCode(titleBump)}`,
-    `**Highest commit bump:** ${summaryCode(maxCommitBump)}`,
-  ]
-
-  if (commentStatus) lines.push(`**PR comment:** ${commentStatus}`)
-
-  if (!titleResult.valid) {
-    lines.push('', '**How to fix:**', titleFix(titleResult))
-  } else if (hasConflict) {
-    lines.push(
-      '',
-      '**How to fix:**',
-      `Update the PR title to signal a ${summaryCode(maxCommitBump)} bump, or amend the flagged commit(s) so they no longer require more than ${summaryCode(titleResult.bumpLevel)}.`,
-    )
-  }
-
-  if (commitAnalysis.length > 0) {
-    lines.push('', '| SHA | Subject | Bump |', '| :-- | :------ | :--: |')
-    for (const { sha, message, result: commitResult } of commitAnalysis.slice(0, 25)) {
-      const bump = commitResult.bumpLevel ?? 'none'
-      const marker = titleResult.valid && bumpGt(bump, titleResult.bumpLevel) ? ' (conflict)' : ''
-      lines.push(
-        `| ${summaryCode(String(sha ?? '').slice(0, 7))} | ${summaryCell(firstLine(message), 72)} | ${summaryCode(`${bump}${marker}`)} |`,
-      )
-    }
-    if (commitAnalysis.length > 25) {
-      lines.push(`| ... | ${summaryCode(`${commitAnalysis.length - 25} more commits`)} | ... |`)
-    }
-  }
-
-  return lines.join('\n')
-}
-
-function buildVersionSummary(result) {
-  return [
-    '## Intent Release',
-    '',
-    `**Release needed:** ${summaryCode(String(result.releaseNeeded))}`,
-    `**Bump:** ${summaryCode(result.bumpLevel)}`,
-    `**Current version:** ${summaryCode(result.currentVersion)}`,
-    `**Next version:** ${summaryCode(result.nextVersion)}`,
-    `**Previous tag:** ${summaryCode(result.previousTag || '(none)')}`,
-    `**Release tag:** ${summaryCode(result.releaseTag)}`,
-    `**Floating tags:** ${summaryCode(result.majorTag)}, ${summaryCode(result.minorTag)}`,
-  ].join('\n')
-}
+// --- Modes ----------------------------------------------------------------------------------------------------------
 
 async function runPullRequest({
   payload,
@@ -236,7 +165,7 @@ async function runPullRequest({
 
   const shouldPostComment =
     commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict))
-  let commentStatus = 'skipped'
+  let commentStatus
   if (shouldPostComment) {
     try {
       await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }), [
@@ -335,9 +264,17 @@ function validateTagComponent(name, value) {
 
 function validateNoControlCharacters(name, value) {
   const text = String(value ?? '')
-  if (/[\x00-\x1f\x7f]/.test(text)) {
+  if (hasControlCharacters(text)) {
     throw new Error(`${name} must not contain control characters, got ${JSON.stringify(text)}`)
   }
+}
+
+function hasControlCharacters(text) {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) return true
+  }
+  return false
 }
 
 async function main() {
