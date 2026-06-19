@@ -36,9 +36,11 @@ jobs:
 >
 > `edited` is needed so that fixing a PR title triggers a fresh validation run -- without it, re-running a failed job
 > replays the original event payload and still validates the old title. The downside is that every title or description
-> edit also re-triggers any other steps in the same workflow. Guard expensive jobs with
-> `if: github.event.action != 'edited'`, or keep Intent in a separate small job. See the
-> [Integration Guide](docs/integration-guide.md#activity-types) for details.
+> edit also re-triggers any other steps in the same workflow. If you have expensive required checks, keep Intent in a
+> small dedicated workflow with `edited` and keep the heavyweight CI workflow on `opened`, `synchronize`, and `reopened`
+> only. Then add both checks to your branch protection or ruleset, for example `Intent / Intent` and `CI / CI`.
+> Requiring only `CI` does not make a failing Intent check block merges. See the
+> [Integration Guide](docs/integration-guide.md#required-checks) for details.
 
 **Version Resolution** -- on every push to main, reads Git tags and commit history to decide whether a release is needed
 and what the next version should be. The resolved release plan is written to the job summary and to action outputs.
