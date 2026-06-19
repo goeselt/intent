@@ -43,4 +43,21 @@ jobs:
         run: npm test
 
       - name: Pedant
-        uses: goeselt/pedant@052c9c1cec0436f4dacb44e4579bbff562d57b1f # v1.2.0
+        id: pedant
+        continue-on-error: true
+        uses: goeselt/pedant@a62f5beea373a55846791c2113ceacd07f114826 # v1.2.2
+        with:
+          summary-github-step: true
+
+      - name: Publish Pedant Report
+        if: always()
+        uses: goeselt/remark@b5a3f7c0d7b25e6634f1f2f9ef13e6b808370972 # v1.0.3
+        with:
+          body: ${{ steps.pedant.outputs.summary }}
+          comment-key: pedant
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          skip-unchanged: true
+
+      - name: Fail On Pedant Findings
+        if: steps.pedant.outcome != 'success'
+        run: exit 1
