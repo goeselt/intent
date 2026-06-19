@@ -2,6 +2,7 @@
 
 - [PR Guard](#pr-guard)
   - [Activity Types](#activity-types)
+  - [Required Checks](#required-checks)
   - [Comment Behavior](#comment-behavior)
   - [Token and Annotation Fallback](#token-and-annotation-fallback)
   - [Fork PRs](#fork-prs)
@@ -51,22 +52,54 @@ Each type covers a distinct part of the PR lifecycle:
 job after fixing the title will still validate the old title. Including `edited` ensures title changes trigger a fresh
 run with a fresh payload.
 
-If the same workflow also runs expensive tests, keep Intent in a separate job and guard heavyweight jobs with a
-condition so title edits do not rerun the full suite:
+If the same workflow also runs expensive tests, title edits will rerun them too. For required checks, avoid guarding the
+heavyweight job with `if: github.event.action != 'edited'`: GitHub reports skipped jobs as success, so a required `CI`
+check can be satisfied without running tests.
+
+Prefer two workflows: a small Intent workflow that includes `edited`, and a heavyweight CI workflow that only runs on
+events that can affect code or commit history.
 
 ```yaml
+# .github/workflows/intent.yml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
 jobs:
-  validate:
+  intent:
     runs-on: ubuntu-latest
     steps:
       - uses: goeselt/intent@v1
+```
 
-  test:
+```yaml
+# .github/workflows/ci.yml
+on:
+  pull_request:
+
+jobs:
+  ci:
     runs-on: ubuntu-latest
-    if: github.event.action != 'edited'
     steps:
       - run: npm test
 ```
+
+### Required Checks
+
+When Intent and CI run as separate workflows, they are separate status checks. Add both to branch protection or
+rulesets:
+
+| Workflow | Job      | Required check name |
+| -------- | -------- | ------------------- |
+| `Intent` | `Intent` | `Intent / Intent`   |
+| `CI`     | `CI`     | `CI / CI`           |
+
+Requiring only `CI` does not require Intent to pass. A PR with a passing test suite and a failing Intent check can still
+be mergeable if the ruleset only lists `CI`.
+
+This is especially important when using the two-workflow pattern above. Do not replace it with a required CI job guarded
+by `if: github.event.action != 'edited'`: skipped GitHub Actions jobs report success and can satisfy the required check
+without running tests.
 
 ### Comment Behavior
 

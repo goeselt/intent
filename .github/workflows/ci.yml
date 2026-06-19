@@ -3,7 +3,6 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -30,12 +29,6 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Validate Intent
-        uses: ./
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          pr-comment: true
 
       - name: Run Tests
         env:
