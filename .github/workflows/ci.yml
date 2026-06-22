@@ -48,7 +48,6 @@ jobs:
         with:
           body: ${{ steps.pedant.outputs.summary }}
           comment-key: pedant
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           skip-unchanged: true
 
       - name: Fail On Pedant Findings
