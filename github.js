@@ -5,6 +5,30 @@ const https = require('node:https')
 const REQUEST_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
+function githubApiBase() {
+  const base = new URL(process.env.GITHUB_API_URL || 'https://api.github.com')
+  if (base.protocol !== 'https:') throw new Error(`GITHUB_API_URL must use https, got ${base.protocol}`)
+  return base
+}
+
+function requestOptions(method, path, token, payload) {
+  const base = githubApiBase()
+  const basePath = base.pathname.replace(/\/+$/, '')
+  return {
+    hostname: base.hostname,
+    port: base.port || undefined,
+    path: `${basePath}${path}`,
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'intent',
+      ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+    },
+  }
+}
+
 function request(method, path, token, body) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined
@@ -14,18 +38,7 @@ function request(method, path, token, body) {
       settled = true
       fn(value)
     }
-    const options = {
-      hostname: 'api.github.com',
-      path,
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'intent',
-        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-      },
-    }
+    const options = requestOptions(method, path, token, payload)
 
     const req = https.request(options, (res) => {
       const chunks = []
@@ -143,6 +156,7 @@ module.exports = {
   commentMatches,
   getPRCommits,
   request,
+  requestOptions,
   upsertComment,
   MAX_PR_COMMITS,
   MAX_RESPONSE_BYTES,

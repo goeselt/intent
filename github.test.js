@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
 const https = require('node:https')
-const { commentMatches, request, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS } = require('./github.js')
+const { commentMatches, request, requestOptions, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS } = require('./github.js')
 const { GENERATED_FOOTER, GENERATED_HEADER } = require('./comment.js')
 
 test('commentMatches only matches marker comments by the authenticated author', () => {
@@ -79,4 +79,18 @@ test('request fails when a GitHub API call times out', async (t) => {
   })
 
   await assert.rejects(() => request('GET', '/slow', 'token'), new RegExp(`timed out after ${REQUEST_TIMEOUT_MS}ms`))
+})
+
+test('requestOptions uses GITHUB_API_URL including enterprise path prefix', () => {
+  const previous = process.env.GITHUB_API_URL
+  process.env.GITHUB_API_URL = 'https://company.ghe.com/api/v3/'
+
+  try {
+    const options = requestOptions('GET', '/repos/owner/repo/pulls/1/commits', 'token')
+    assert.equal(options.hostname, 'company.ghe.com')
+    assert.equal(options.path, '/api/v3/repos/owner/repo/pulls/1/commits')
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_API_URL
+    else process.env.GITHUB_API_URL = previous
+  }
 })
