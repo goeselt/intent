@@ -34,13 +34,17 @@ function code(str) {
   return `\`${clean(str)}\``
 }
 
+function escapeTablePipes(str) {
+  return String(str).split('|').join('\\|')
+}
+
 /** Inline-code span for a table cell: also escapes pipes (GFM unescapes them). */
 function cell(str, maxLen) {
   let text = clean(str)
   if (maxLen && text.length > maxLen) {
     text = `${text.slice(0, maxLen - 1)}...`
   }
-  return `\`${text.replace(/\|/g, '\\|')}\``
+  return `\`${escapeTablePipes(text)}\``
 }
 
 function shortSha(sha) {

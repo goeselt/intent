@@ -13,10 +13,14 @@ function code(value) {
   return `\`${text(value)}\``
 }
 
+function escapeTablePipes(value) {
+  return String(value).split('|').join('\\|')
+}
+
 function cell(value, maxLen) {
   let rendered = text(value)
   if (maxLen && rendered.length > maxLen) rendered = `${rendered.slice(0, maxLen - 1)}...`
-  return code(rendered.replace(/\|/g, '\\|'))
+  return code(escapeTablePipes(rendered))
 }
 
 function hasBreakingFooter(message) {
