@@ -61,6 +61,30 @@ function bumpCell(bumpLevel, isConflict) {
   return isConflict ? `**\`${bumpLevel}\`** :warning:` : `\`${bumpLevel}\``
 }
 
+function hasBreakingFooter(message) {
+  return String(message ?? '')
+    .split(/\r?\n/)
+    .some((line) => /^BREAKING[ -]CHANGE:/.test(line.trim()))
+}
+
+function hasBreakingBang(message) {
+  return /^([a-z]+)(\([^)]+\))?!: /.test(firstLine(message))
+}
+
+function bumpReason(message, bumpLevel) {
+  if (bumpLevel === 'major') {
+    const bang = hasBreakingBang(message)
+    const footer = hasBreakingFooter(message)
+    if (bang && footer) return 'contains `!` and a `BREAKING CHANGE` footer'
+    if (bang) return 'contains `!`'
+    if (footer) return 'contains a `BREAKING CHANGE` footer'
+    return 'marks a breaking change'
+  }
+  if (bumpLevel === 'minor') return '`feat:` means new functionality'
+  if (bumpLevel === 'patch') return '`fix:` or `perf:` means a patch change'
+  return '--'
+}
+
 function commitsTable(commitAnalysis, titleBump) {
   const rows = commitAnalysis.map(({ sha, message, result }) => {
     const subject = firstLine(message)
@@ -68,10 +92,13 @@ function commitsTable(commitAnalysis, titleBump) {
     // A commit contributes a bump even when its subject is not valid CC -- e.g. a non-CC subject carrying a
     // BREAKING CHANGE footer. Display and conflict marking therefore key off the bump level, not the validity flag.
     const isConflict = bumpGt(bump, titleBump)
-    return `| \`${shortSha(sha)}\` | ${cell(subject, 72)} | ${bumpCell(bump, isConflict)} |`
+    return `| \`${shortSha(sha)}\` | ${cell(subject, 72)} | ${bumpCell(bump, isConflict)} | ${bumpReason(
+      message,
+      bump,
+    )} |`
   })
 
-  return ['| SHA | Subject | Bump |', '| :-- | :------ | :--: |', ...rows].join('\n')
+  return ['| SHA | Subject | Bump | Reason |', '| :-- | :------ | :--: | :----- |', ...rows].join('\n')
 }
 
 function detailsSection(commitAnalysis, titleBump) {
@@ -104,16 +131,16 @@ function buildInvalidTitleComment(title) {
     GENERATED_HEADER,
     '',
     alert('CAUTION', [
-      '**Intent -- Invalid PR Title**',
+      '**Intent &middot; Invalid PR Title**',
       '',
-      'The PR title does not follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/) format.',
+      'Intent uses the PR title as the release signal, and this title does not follow [Conventional Commits v1.0.0](https://www.conventionalcommits.org/) format.',
       '',
       `**Got:** ${code(title || '(empty)')}`,
       '**Expected:** `<type>[scope][!]: <description>`',
       '',
       '**Allowed types:** `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`',
       '',
-      '**How to fix:** Update the PR title -- for example: `feat: add login` or `fix(auth)!: remove deprecated endpoint`',
+      '**How to fix:** Edit the PR title in GitHub -- for example: `feat: add login` or `fix(auth)!: remove deprecated endpoint`',
     ]),
     '',
     buildFooter(),
@@ -128,26 +155,22 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
   const prefix = EXAMPLE_PREFIX[maxCommitBump] ?? 'feat'
   const example = code(`${prefix}: ${desc}`)
 
-  // The remedy for a commit differs by what makes it bump high: a breaking indicator can be removed;
-  // an over-strong type must be lowered.
-  const optionB =
-    maxCommitBump === 'major'
-      ? '- **Option B -- Amend the commit(s)** marked :warning: to remove the breaking-change indicator (`!` or `BREAKING CHANGE` footer).'
-      : '- **Option B -- Amend the commit(s)** marked :warning: to lower their type (e.g. `feat:` --> `fix:`) so they no longer imply a higher bump.'
-
   return [
     MARKER,
     '',
     GENERATED_HEADER,
     '',
     alert('CAUTION', [
-      '**Intent -- Bump Conflict**',
+      '**Intent &middot; Release Intent Mismatch**',
       '',
-      `Commits in this PR require a **\`${maxCommitBump}\`** bump, but the PR title ${code(title)} only signals **\`${titleBump}\`**.`,
+      `The PR title declares a **\`${titleBump}\`** bump: ${code(title)}`,
       '',
-      '**How to fix -- choose one:**',
-      `- **Option A -- Update the PR title** to reflect the highest bump, e.g. ${example}`,
-      optionB,
+      `One or more commits imply a higher **\`${maxCommitBump}\`** bump.`,
+      '',
+      '**Choose the fix that matches the real intent:**',
+      `- If the commit message is correct, update the PR title to declare **\`${maxCommitBump}\`**, e.g. ${example}`,
+      '- If a flagged commit message overstates the change, rewrite that commit message so it no longer implies a higher bump.',
+      '- If this PR will be squash-merged, make sure the final squash commit message also matches the intended bump.',
     ]),
     detailsSection(commitAnalysis, titleBump),
     '',
@@ -157,7 +180,7 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
 
 function buildSuccessComment(title, titleBump, commitAnalysis) {
   const isRelease = titleBump !== 'none'
-  const heading = isRelease ? `**Intent -- \`${titleBump}\` bump**` : '**Intent -- No Release**'
+  const heading = isRelease ? `**Intent &middot; \`${titleBump}\` bump**` : '**Intent &middot; No Release**'
 
   return [
     MARKER,

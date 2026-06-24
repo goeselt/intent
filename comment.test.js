@@ -102,12 +102,12 @@ test('invalid title: aliases use the strict format hint', () => {
     commitAnalysis: [],
     maxCommitBump: 'none',
   })
-  assert.ok(body.includes('Update the PR title'), 'strict format hint missing')
+  assert.ok(body.includes('Edit the PR title in GitHub'), 'strict format hint missing')
 })
 
 // --- bump conflict ---------------------------------------------------------------------------------------------------
 
-test('conflict: heading, both bump levels, and fix options present', () => {
+test('conflict: heading, both bump levels, and fix paths present', () => {
   const commits = [
     makeCommit('abc1234567', 'feat!: remove old endpoint', 'major'),
     makeCommit('def5678901', 'fix: minor correction', 'patch'),
@@ -119,11 +119,12 @@ test('conflict: heading, both bump levels, and fix options present', () => {
     maxCommitBump: 'major',
   })
   assert.ok(body.includes('[!CAUTION]'), 'caution alert missing')
-  assert.ok(body.includes('Bump Conflict'), 'heading missing')
+  assert.ok(body.includes('Release Intent Mismatch'), 'heading missing')
   assert.ok(body.includes('major'), 'major bump level missing')
   assert.ok(body.includes('patch'), 'title bump level missing')
-  assert.ok(body.includes('Option A'), 'Option A missing')
-  assert.ok(body.includes('Option B'), 'Option B missing')
+  assert.ok(body.includes('If the commit message is correct'), 'title fix path missing')
+  assert.ok(body.includes('overstates the change'), 'commit rewrite path missing')
+  assert.ok(body.includes('squash commit message'), 'squash merge guidance missing')
 })
 
 test('conflict: conflicting commit flagged with warning in table', () => {
@@ -306,7 +307,7 @@ test('S05: bump cell enum values are never affected by sanitization', () => {
 
 test('F2-01: non-CC commit with breaking footer is flagged in the table', () => {
   // bumpLevel major but subject not valid CC -- must still show the bump + warning.
-  const commits = [makeCommit('abc1234567', 'WIP: stuff', 'major', false)]
+  const commits = [makeCommit('abc1234567', 'WIP: stuff\n\nBREAKING CHANGE: removed API', 'major', false)]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
     title: 'fix: release',
@@ -315,6 +316,7 @@ test('F2-01: non-CC commit with breaking footer is flagged in the table', () => 
   })
   assert.ok(body.includes('**`major`** :warning:'), 'offending commit not flagged')
   assert.ok(body.includes('abc1234'), 'offending SHA missing')
+  assert.ok(body.includes('contains a `BREAKING CHANGE` footer'), 'breaking footer reason missing')
   assert.ok(!body.match(/\| `abc1234` \|[^|]*\| -- \|/), 'offending commit shown as dash')
 })
 
@@ -355,9 +357,9 @@ test('F3-03: major conflict suggests feat!:', () => {
   assert.ok(body.includes('`feat!: add thing`'), 'major suggestion should use feat!:')
 })
 
-// --- Review fix: Option B wording matches conflict kind --------------------------------------------------------------
+// --- Review fix: conflict reason explains why a commit bumps ----------------------------------------------------------
 
-test('F4-01: non-breaking conflict tells user to lower the commit type', () => {
+test('F4-01: feat conflict explains the minor bump reason', () => {
   const commits = [makeCommit('abc1234567', 'feat: new thing', 'minor')]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
@@ -365,11 +367,11 @@ test('F4-01: non-breaking conflict tells user to lower the commit type', () => {
     commitAnalysis: commits,
     maxCommitBump: 'minor',
   })
-  assert.ok(body.includes('lower their type'), 'non-breaking Option B wording missing')
+  assert.ok(body.includes('`feat:` means new functionality'), 'minor bump reason missing')
   assert.ok(!body.includes('breaking-change indicator'), 'must not mention breaking indicator')
 })
 
-test('F4-02: breaking conflict tells user to remove the breaking indicator', () => {
+test('F4-02: breaking conflict explains the major bump reason', () => {
   const commits = [makeCommit('abc1234567', 'feat!: break', 'major')]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
@@ -377,5 +379,16 @@ test('F4-02: breaking conflict tells user to remove the breaking indicator', () 
     commitAnalysis: commits,
     maxCommitBump: 'major',
   })
-  assert.ok(body.includes('breaking-change indicator'), 'breaking Option B wording missing')
+  assert.ok(body.includes('contains `!`'), 'breaking bump reason missing')
+})
+
+test('F4-03: breaking footer conflict explains the major bump reason', () => {
+  const commits = [makeCommit('abc1234567', 'feat: break\n\nBREAKING CHANGE: removed API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add thing',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('contains a `BREAKING CHANGE` footer'), 'breaking footer reason missing')
 })

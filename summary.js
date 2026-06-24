@@ -19,8 +19,32 @@ function cell(value, maxLen) {
   return code(rendered.replace(/\|/g, '\\|'))
 }
 
+function hasBreakingFooter(message) {
+  return String(message ?? '')
+    .split(/\r?\n/)
+    .some((line) => /^BREAKING[ -]CHANGE:/.test(line.trim()))
+}
+
+function hasBreakingBang(message) {
+  return /^([a-z]+)(\([^)]+\))?!: /.test(firstLine(message))
+}
+
+function bumpReason(message, bumpLevel) {
+  if (bumpLevel === 'major') {
+    const bang = hasBreakingBang(message)
+    const footer = hasBreakingFooter(message)
+    if (bang && footer) return 'contains `!` and a `BREAKING CHANGE` footer'
+    if (bang) return 'contains `!`'
+    if (footer) return 'contains a `BREAKING CHANGE` footer'
+    return 'marks a breaking change'
+  }
+  if (bumpLevel === 'minor') return '`feat:` means new functionality'
+  if (bumpLevel === 'patch') return '`fix:` or `perf:` means a patch change'
+  return '--'
+}
+
 function titleFix() {
-  return 'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
+  return 'Edit the PR title in GitHub to use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
 }
 
 function fieldTable(rows) {
@@ -30,7 +54,7 @@ function fieldTable(rows) {
 function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }) {
   const titleBump = titleResult.valid ? titleResult.bumpLevel : 'invalid'
   const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
-  const result = !titleResult.valid ? 'fail - invalid title' : hasConflict ? 'fail - bump conflict' : 'pass'
+  const result = titleResult.valid ? (hasConflict ? 'fail - bump conflict' : 'pass') : 'fail - invalid title'
   const rows = [
     ['Result', cell(result)],
     ['PR title', cell(title || '(empty)', 120)],
@@ -48,21 +72,25 @@ function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommit
     lines.push(
       '',
       '**How to fix:**',
-      `Update the PR title to signal a ${code(maxCommitBump)} bump, or amend the flagged commit(s) so they no longer require more than ${code(titleResult.bumpLevel)}.`,
+      `Intent found a release intent mismatch: the PR title declares ${code(titleResult.bumpLevel)}, but one or more commits imply ${code(maxCommitBump)}.`,
+      `If the commit message is correct, update the PR title to declare ${code(maxCommitBump)}. If a flagged commit message overstates the change, rewrite that commit message so it no longer implies a higher bump.`,
+      'For squash merges, also make sure the final squash commit message matches the intended bump.',
     )
   }
 
   if (commitAnalysis.length > 0) {
-    lines.push('', '| SHA | Subject | Bump |', '| :-- | :------ | :--: |')
+    lines.push('', '| SHA | Subject | Bump | Reason |', '| :-- | :------ | :--: | :----- |')
     for (const { sha, message, result: commitResult } of commitAnalysis.slice(0, 25)) {
       const bump = commitResult.bumpLevel ?? 'none'
       const marker = titleResult.valid && bumpGt(bump, titleResult.bumpLevel) ? ' (conflict)' : ''
       lines.push(
-        `| ${code(String(sha ?? '').slice(0, 7))} | ${cell(firstLine(message), 72)} | ${code(`${bump}${marker}`)} |`,
+        `| ${code(String(sha ?? '').slice(0, 7))} | ${cell(firstLine(message), 72)} | ${code(
+          `${bump}${marker}`,
+        )} | ${bumpReason(message, bump)} |`,
       )
     }
     if (commitAnalysis.length > 25) {
-      lines.push(`| ... | ${code(`${commitAnalysis.length - 25} more commits`)} | ... |`)
+      lines.push(`| ... | ${code(`${commitAnalysis.length - 25} more commits`)} | ... | ... |`)
     }
   }
 
