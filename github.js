@@ -4,6 +4,8 @@ const https = require('node:https')
 
 const REQUEST_TIMEOUT_MS = 15_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+const MAX_RELEASE_CONTEXT_COMMITS = 250
+const MAX_RELEASE_CONTEXT_TAGS = 1000
 
 function githubApiBase() {
   const base = new URL(process.env.GITHUB_API_URL || 'https://api.github.com')
@@ -121,6 +123,62 @@ async function getPRCommits(token, repo, prNumber) {
   return commits
 }
 
+async function getRepositoryTags(token, repo, maxTags = MAX_RELEASE_CONTEXT_TAGS) {
+  const tags = []
+  for (let page = 1; ; page++) {
+    const batch = await request('GET', `/repos/${repo}/tags?per_page=100&page=${page}`, token)
+    if (!Array.isArray(batch) || batch.length === 0) break
+    tags.push(...batch)
+    if (tags.length > maxTags) {
+      throw new Error(`repository has more than ${maxTags} tags; release context analysis is capped`)
+    }
+    if (batch.length < 100) break
+  }
+  return tags
+}
+
+async function compareCommits(token, repo, base, head, maxCommits = MAX_RELEASE_CONTEXT_COMMITS) {
+  const commits = []
+  const range = `${encodeURIComponent(base)}...${encodeURIComponent(head)}`
+
+  for (let page = 1; ; page++) {
+    const result = await request('GET', `/repos/${repo}/compare/${range}?per_page=100&page=${page}`, token)
+    if (page === 1 && Number.isSafeInteger(result?.total_commits) && result.total_commits > maxCommits) {
+      throw new Error(
+        `comparison has ${result.total_commits} commits; release context analysis is capped at ${maxCommits}`,
+      )
+    }
+
+    const batch = Array.isArray(result?.commits) ? result.commits : []
+    if (batch.length === 0) break
+    commits.push(...batch)
+    if (commits.length > maxCommits) {
+      throw new Error(`comparison has more than ${maxCommits} commits; release context analysis is capped`)
+    }
+    if (batch.length < 100) break
+  }
+
+  return commits
+}
+
+async function getBranchCommits(token, repo, branch, maxCommits = MAX_RELEASE_CONTEXT_COMMITS) {
+  const commits = []
+  const encodedBranch = encodeURIComponent(branch)
+
+  for (let page = 1; commits.length <= maxCommits; page++) {
+    const batch = await request('GET', `/repos/${repo}/commits?sha=${encodedBranch}&per_page=100&page=${page}`, token)
+    if (!Array.isArray(batch) || batch.length === 0) break
+    commits.push(...batch)
+    if (batch.length < 100) break
+  }
+
+  if (commits.length > maxCommits) {
+    throw new Error(`default branch has more than ${maxCommits} commits; release context analysis is capped`)
+  }
+
+  return commits
+}
+
 async function upsertComment(token, repo, prNumber, marker, body, generatedSentinels = []) {
   const authorLogin = await authenticatedLogin(token)
 
@@ -154,11 +212,16 @@ function normalize(text) {
 module.exports = {
   authenticatedLogin,
   commentMatches,
+  compareCommits,
+  getBranchCommits,
   getPRCommits,
+  getRepositoryTags,
   request,
   requestOptions,
   upsertComment,
   MAX_PR_COMMITS,
+  MAX_RELEASE_CONTEXT_COMMITS,
+  MAX_RELEASE_CONTEXT_TAGS,
   MAX_RESPONSE_BYTES,
   REQUEST_TIMEOUT_MS,
 }

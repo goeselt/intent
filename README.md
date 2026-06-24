@@ -16,6 +16,9 @@ Intent covers two complementary jobs. Use both together for a complete release p
 **PR Guard** -- validates the PR title and checks that no commit requires a higher bump than the title promises. Posts
 an explanatory comment on the PR only when something needs attention.
 
+When a PR comment is posted, Intent also includes release context from the default branch when relevant: the current
+default-branch bump since the latest matching release tag, and whether this PR would raise the projected next release.
+
 ```yaml
 on:
   pull_request:
@@ -79,8 +82,8 @@ For fork PRs, tag protection, scoped releases, and path filters, see the [Integr
 | ---------------------- | ---------- | ---- | -------------------------------------------------------------------- |
 | `github-token`         | token      | PR   | Token used to list PR commits and post the PR comment.               |
 | `pr-comment`           | `failures` | PR   | Comment policy: `failures`, `true`/`always`, or `false`/`never`.     |
-| `release-scope`        |            | push | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
-| `tag-prefix`           | `v`        | push | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
+| `release-scope`        |            | both | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
+| `tag-prefix`           | `v`        | both | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
 | `initial-version`      | `0.0.0`    | push | Version used when no matching release tag exists yet.                |
 | `release-paths`        |            | push | Newline-separated paths allowed to contribute to version resolution. |
 | `release-ignore-paths` |            | push | Newline-separated paths excluded from version resolution.            |

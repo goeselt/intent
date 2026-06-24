@@ -132,7 +132,30 @@ function majorNoticeLines() {
   ]
 }
 
-function buildInvalidTitleComment(title) {
+function maxBumpLevel(...levels) {
+  return levels.reduce((max, level) => (bumpGt(level ?? 'none', max) ? level : max), 'none')
+}
+
+function releaseContextSection(releaseContext, prBump) {
+  if (!releaseContext) return ''
+
+  const defaultBranchBump = releaseContext.defaultBranchBump ?? 'none'
+  const projectedBump = maxBumpLevel(defaultBranchBump, prBump)
+  const lines = []
+
+  if (defaultBranchBump !== 'none') {
+    lines.push(`The default branch already requires a \`${defaultBranchBump}\` bump.`)
+  }
+
+  if (bumpGt(prBump, defaultBranchBump)) {
+    lines.push(`This PR would raise the next release to \`${projectedBump}\`.`)
+  }
+
+  if (lines.length === 0) return ''
+  return ['', '### Release context', '', ...lines].join('\n')
+}
+
+function buildInvalidTitleComment(title, releaseContext, prBump) {
   return [
     MARKER,
     '',
@@ -150,6 +173,7 @@ function buildInvalidTitleComment(title) {
       '',
       '**How to fix:** Edit the PR title in GitHub -- for example: `feat: add login` or `fix(auth)!: remove deprecated endpoint`',
     ]),
+    releaseContextSection(releaseContext, prBump),
     '',
     buildFooter(),
   ].join('\n')
@@ -158,7 +182,7 @@ function buildInvalidTitleComment(title) {
 // Example title prefix that yields each bump level, used in the fix suggestion.
 const EXAMPLE_PREFIX = { major: 'feat!', minor: 'feat', patch: 'fix' }
 
-function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
+function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis, releaseContext) {
   const desc = firstLine(title).replace(/^[a-z]+(\([^)]+\))?!?: /i, '') || 'description'
   const prefix = EXAMPLE_PREFIX[maxCommitBump] ?? 'feat'
   const example = code(`${prefix}: ${desc}`)
@@ -181,13 +205,14 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
       '- If a flagged commit message overstates the change, rewrite that commit message so it no longer implies a higher bump.',
       '- If this PR will be squash-merged, make sure the final squash commit message also matches the intended bump.',
     ]),
+    releaseContextSection(releaseContext, maxBumpLevel(titleBump, maxCommitBump)),
     detailsSection(commitAnalysis, titleBump),
     '',
     buildFooter(),
   ].join('\n')
 }
 
-function buildSuccessComment(title, titleBump, commitAnalysis) {
+function buildSuccessComment(title, titleBump, commitAnalysis, releaseContext) {
   const isRelease = titleBump !== 'none'
   const isMajor = titleBump === 'major'
   const heading = isMajor
@@ -210,6 +235,7 @@ function buildSuccessComment(title, titleBump, commitAnalysis) {
       '',
       `**Why:** ${BUMP_REASON[titleBump]}.`,
     ]),
+    releaseContextSection(releaseContext, titleBump),
     detailsSection(commitAnalysis, titleBump),
     '',
     buildFooter(),
@@ -220,18 +246,18 @@ function buildSuccessComment(title, titleBump, commitAnalysis) {
  * Builds the full PR comment body from scratch. The result fully replaces any previous comment body -- no merging,
  * so there are no stale intermediate states.
  *
- * @param {{ titleResult, title, commitAnalysis, maxCommitBump }} params
+ * @param {{ titleResult, title, commitAnalysis, maxCommitBump, releaseContext }} params
  * @returns {string}
  */
-function buildComment({ titleResult, title, commitAnalysis, maxCommitBump }) {
+function buildComment({ titleResult, title, commitAnalysis, maxCommitBump, releaseContext }) {
   if (!titleResult.valid) {
-    return buildInvalidTitleComment(title)
+    return buildInvalidTitleComment(title, releaseContext, maxCommitBump)
   }
   const titleBump = titleResult.bumpLevel
   if (bumpGt(maxCommitBump, titleBump)) {
-    return buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis)
+    return buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis, releaseContext)
   }
-  return buildSuccessComment(title, titleBump, commitAnalysis)
+  return buildSuccessComment(title, titleBump, commitAnalysis, releaseContext)
 }
 
 module.exports = { buildComment, buildFooter, GENERATED_FOOTER, GENERATED_HEADER, MARKER }

@@ -166,6 +166,34 @@ test('conflict: major mismatch calls out major release risk', () => {
   assert.ok(body.includes('incompatible release'), 'major risk wording missing')
 })
 
+test('conflict: release context shows default bump and PR raise', () => {
+  const commits = [makeCommit('abc1234567', 'feat!: break API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+    releaseContext: { defaultBranchBump: 'minor' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(body.includes('The default branch already requires a `minor` bump.'), 'default branch context missing')
+  assert.ok(body.includes('This PR would raise the next release to `major`.'), 'PR raise context missing')
+})
+
+test('conflict: release context omits default bump line for none', () => {
+  const commits = [makeCommit('abc1234567', 'feat: add API', 'minor')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
+    title: 'fix: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'minor',
+    releaseContext: { defaultBranchBump: 'none' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(!body.includes('The default branch already requires'), 'none default branch context should be omitted')
+  assert.ok(body.includes('This PR would raise the next release to `minor`.'), 'PR raise context missing')
+})
+
 // --- success ---------------------------------------------------------------------------------------------------------
 
 test('success: minor bump shows correct heading and reason', () => {
@@ -202,6 +230,30 @@ test('success: major bump uses warning alert and prominent wording', () => {
   assert.ok(body.includes('Major Version Bump'), 'major heading missing')
   assert.ok(body.includes('Major version bump detected'), 'major notice missing')
   assert.ok(body.includes('incompatible release'), 'major risk wording missing')
+})
+
+test('success: release context shows existing default bump even when PR does not raise', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
+    title: 'fix: correct bug',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+    releaseContext: { defaultBranchBump: 'minor' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(body.includes('The default branch already requires a `minor` bump.'), 'default branch context missing')
+  assert.ok(!body.includes('This PR would raise'), 'PR raise context should be omitted')
+})
+
+test('success: release context omits section when no line applies', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'none', errors: [] },
+    title: 'chore: cleanup',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+    releaseContext: { defaultBranchBump: 'none' },
+  })
+  assert.ok(!body.includes('### Release context'), 'release context should be omitted when PR does not raise')
 })
 
 test('alert: commit table renders outside the blockquote (tables do not render inside)', () => {
