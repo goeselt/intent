@@ -17,11 +17,11 @@ inputs:
     required: false
     default: 'failures'
   release-scope:
-    description: 'Push mode only. Tag namespace for scoped releases. Tags become <scope>/<prefix><version>.'
+    description: 'Tag namespace for scoped releases. Tags become <scope>/<prefix><version>. Also used by PR release context.'
     required: false
     default: ''
   tag-prefix:
-    description: 'Push mode only. Prefix for version tags, for example v for v1.2.3.'
+    description: 'Prefix for version tags, for example v for v1.2.3. Also used by PR release context.'
     required: false
     default: 'v'
   initial-version:

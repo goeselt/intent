@@ -3,11 +3,21 @@
 GitHub Action that validates pull request release intent and resolves the next semantic version from
 [Conventional Commit](https://www.conventionalcommits.org/) history.
 
-Designed for squash-merge workflows: the PR title is the release signal, and the default-branch commit history drives
-the concrete version.
+Most release actions either inspect commits after merge or lint pull request titles before merge. Intent connects both
+sides of that workflow:
 
-Use Intent when release decisions should be explicit, reviewable, and consistent: it rejects ambiguous PR titles, checks
-whether commits imply a stronger bump than the title promises, and turns trusted Git history into concrete release tags.
+- **Reviewable release intent before merge.** The PR title declares the intended bump, so reviewers can see and discuss
+  the release impact before the branch lands.
+- **Commit evidence still matters.** Intent checks the PR commits and fails if any commit implies a stronger bump than
+  the title promises, including accidental or hidden breaking-change markers.
+- **Squash-merge friendly by design.** The PR title is the pre-merge signal; after merge, the default-branch commit
+  history becomes the trusted source for concrete release tags.
+- **Release context in the PR.** When relevant, the PR comment shows whether the default branch already requires a bump
+  and whether this PR would raise the projected next release.
+- **One action for guard and resolution.** The same rules validate PRs and later resolve `next-version`, `release-tag`,
+  and floating major/minor tags from Git history.
+
+Use Intent when release decisions should be explicit, reviewable, and consistent instead of inferred only after merge.
 
 ## Getting Started
 
@@ -15,6 +25,9 @@ Intent covers two complementary jobs. Use both together for a complete release p
 
 **PR Guard** -- validates the PR title and checks that no commit requires a higher bump than the title promises. Posts
 an explanatory comment on the PR only when something needs attention.
+
+When a PR comment is posted, Intent also includes release context from the default branch when relevant: the current
+default-branch bump since the latest matching release tag, and whether this PR would raise the projected next release.
 
 ```yaml
 on:
@@ -79,8 +92,8 @@ For fork PRs, tag protection, scoped releases, and path filters, see the [Integr
 | ---------------------- | ---------- | ---- | -------------------------------------------------------------------- |
 | `github-token`         | token      | PR   | Token used to list PR commits and post the PR comment.               |
 | `pr-comment`           | `failures` | PR   | Comment policy: `failures`, `true`/`always`, or `false`/`never`.     |
-| `release-scope`        |            | push | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
-| `tag-prefix`           | `v`        | push | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
+| `release-scope`        |            | both | Tag namespace for scoped releases, e.g. `cli` --> `cli/v1.2.3`.      |
+| `tag-prefix`           | `v`        | both | Prefix for version tags, e.g. `v` for `v1.2.3`.                      |
 | `initial-version`      | `0.0.0`    | push | Version used when no matching release tag exists yet.                |
 | `release-paths`        |            | push | Newline-separated paths allowed to contribute to version resolution. |
 | `release-ignore-paths` |            | push | Newline-separated paths excluded from version resolution.            |

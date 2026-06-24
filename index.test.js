@@ -18,9 +18,16 @@ const { MAX_PR_COMMITS } = require('./github.js')
 
 function payload(overrides = {}) {
   return {
-    repository: { full_name: 'goeselt/example' },
+    repository: { full_name: 'goeselt/example', default_branch: 'main' },
     pull_request: { number: 123, title: 'fix: correct release' },
     ...overrides,
+  }
+}
+
+function noReleaseContext() {
+  return {
+    getTags: () => Promise.resolve([]),
+    getCommitsForBranch: () => Promise.resolve([]),
   }
 }
 
@@ -179,6 +186,7 @@ test('runPullRequest accepts a missing comment permission and warns instead of f
         token: 'token',
         postComment: true,
         getCommits: () => Promise.resolve([]),
+        ...noReleaseContext(),
         upsert: () =>
           Promise.reject(
             new Error(
@@ -208,6 +216,7 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
         token: 'token',
         postComment: 'failures',
         getCommits: () => Promise.resolve([]),
+        ...noReleaseContext(),
         upsert: () => {
           commentCalled = true
           return Promise.resolve()
@@ -226,4 +235,34 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
     }
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('runPullRequest adds release context to the PR comment', async () => {
+  let commentBody = ''
+  let comparedBase = ''
+
+  await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload({ pull_request: { number: 123, title: 'feat!: remove legacy API' } }),
+        token: 'token',
+        postComment: 'always',
+        getCommits: () => Promise.resolve([]),
+        getTags: () => Promise.resolve([{ name: 'v1.2.0' }, { name: 'v1.10.0' }, { name: 'not-a-release' }]),
+        compare: (_token, _repo, base) => {
+          comparedBase = base
+          return Promise.resolve([{ commit: { message: 'feat: existing default branch feature' } }])
+        },
+        upsert: (_token, _repo, _prNumber, _marker, body) => {
+          commentBody = body
+          return Promise.resolve()
+        },
+      }),
+    ),
+  )
+
+  assert.equal(comparedBase, 'v1.10.0')
+  assert.match(commentBody, /### Release context/)
+  assert.match(commentBody, /The default branch already requires a `minor` bump\./)
+  assert.match(commentBody, /This PR would raise the next release to `major`\./)
 })

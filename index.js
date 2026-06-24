@@ -4,7 +4,14 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
-const { getPRCommits, upsertComment, MAX_PR_COMMITS } = require('./github.js')
+const {
+  compareCommits,
+  getBranchCommits,
+  getPRCommits,
+  getRepositoryTags,
+  upsertComment,
+  MAX_PR_COMMITS,
+} = require('./github.js')
 const { buildPullRequestSummary, buildVersionSummary, titleFix } = require('./summary.js')
 const {
   analyzeCommit,
@@ -13,9 +20,11 @@ const {
   bumpGt,
   findLatestTag,
   firstLine,
+  maxBump,
   parseCommitLog,
   parsePaths,
   parseReservedTags,
+  parseSemver,
   resolveVersion,
   validate,
 } = require('./version.js')
@@ -123,6 +132,65 @@ function describeReservedTagsSkipped(result) {
   return `${prefix}; using ${JSON.stringify(result.releaseTag)} instead`
 }
 
+function releaseTagBase(scope, prefix) {
+  return scope ? `${scope}/${prefix}` : prefix
+}
+
+function latestReleaseTag(tags, scope, prefix) {
+  const base = releaseTagBase(scope, prefix)
+  const candidates = []
+
+  for (const tag of tags) {
+    const name = String(tag?.name ?? '')
+    if (!name.startsWith(base)) continue
+
+    const version = name.slice(base.length)
+    try {
+      candidates.push({ name, version: parseSemver(version) })
+    } catch {
+      // Ignore non-semver tags in the same namespace, matching push-mode behaviour.
+    }
+  }
+
+  candidates.sort((a, b) => {
+    for (let i = 0; i < 3; i++) {
+      if (a.version[i] !== b.version[i]) return b.version[i] - a.version[i]
+    }
+    return 0
+  })
+
+  return candidates[0]?.name ?? ''
+}
+
+async function resolvePullRequestReleaseContext({
+  token,
+  repo,
+  defaultBranch,
+  scope = '',
+  prefix = 'v',
+  getTags = getRepositoryTags,
+  compare = compareCommits,
+  getCommitsForBranch = getBranchCommits,
+}) {
+  if (!defaultBranch) return null
+
+  const tags = await getTags(token, repo)
+  const previousTag = latestReleaseTag(tags, scope, prefix)
+  const commits = previousTag
+    ? await compare(token, repo, previousTag, defaultBranch)
+    : await getCommitsForBranch(token, repo, defaultBranch)
+  const commitMessages = commits
+    .map((commit) => commit?.commit?.message)
+    .filter((message) => typeof message === 'string')
+  const defaultBranchBump = maxBump(commitMessages)
+
+  log(
+    `release-context default-branch=${defaultBranch} previous-tag=${previousTag || '-'} commits-analyzed=${commitMessages.length} bump=${defaultBranchBump}`,
+  )
+
+  return { defaultBranchBump }
+}
+
 function appendStepSummary(content) {
   const summaryFile = process.env['GITHUB_STEP_SUMMARY']
   if (!summaryFile) return
@@ -136,7 +204,12 @@ async function runPullRequest({
   token,
   postComment = 'failures',
   getCommits = getPRCommits,
+  getTags = getRepositoryTags,
+  compare = compareCommits,
+  getCommitsForBranch = getBranchCommits,
   upsert = upsertComment,
+  releaseScope = '',
+  tagPrefix = 'v',
 }) {
   const pr = payload.pull_request
   if (!pr) throw new Error('pull_request payload is missing')
@@ -146,6 +219,7 @@ async function runPullRequest({
 
   const title = pr.title ?? ''
   const prNumber = pr.number
+  const defaultBranch = payload.repository?.default_branch ?? pr.base?.repo?.default_branch ?? pr.base?.ref ?? ''
   const titleResult = validate(title)
   const commentMode = parseCommentMode(postComment)
 
@@ -180,10 +254,30 @@ async function runPullRequest({
   let commentStatus
   if (shouldPostComment) {
     try {
-      await upsert(token, repo, prNumber, MARKER, buildComment({ titleResult, title, commitAnalysis, maxCommitBump }), [
-        GENERATED_HEADER,
-        GENERATED_FOOTER,
-      ])
+      let releaseContext = null
+      try {
+        releaseContext = await resolvePullRequestReleaseContext({
+          token,
+          repo,
+          defaultBranch,
+          scope: releaseScope,
+          prefix: tagPrefix,
+          getTags,
+          compare,
+          getCommitsForBranch,
+        })
+      } catch (err) {
+        log(`release-context=skipped reason=${JSON.stringify(err.message)}`)
+      }
+
+      await upsert(
+        token,
+        repo,
+        prNumber,
+        MARKER,
+        buildComment({ titleResult, title, commitAnalysis, maxCommitBump, releaseContext }),
+        [GENERATED_HEADER, GENERATED_FOOTER],
+      )
       log('comment=updated')
       commentStatus = 'updated'
     } catch (err) {
@@ -299,10 +393,17 @@ async function main() {
   const payload = eventPayload()
 
   if (isPREvent(eventName)) {
+    const releaseScope = input('RELEASE-SCOPE')
+    const tagPrefix = input('TAG-PREFIX', 'v')
+    validateTagComponent('release-scope', releaseScope)
+    validateTagComponent('tag-prefix', tagPrefix)
+
     await runPullRequest({
       payload,
       token: input('GITHUB-TOKEN'),
       postComment: commentModeInput('PR-COMMENT', 'failures'),
+      releaseScope,
+      tagPrefix,
     })
     return
   }

@@ -102,12 +102,12 @@ test('invalid title: aliases use the strict format hint', () => {
     commitAnalysis: [],
     maxCommitBump: 'none',
   })
-  assert.ok(body.includes('Update the PR title'), 'strict format hint missing')
+  assert.ok(body.includes('Edit the PR title in GitHub'), 'strict format hint missing')
 })
 
 // --- bump conflict ---------------------------------------------------------------------------------------------------
 
-test('conflict: heading, both bump levels, and fix options present', () => {
+test('conflict: heading, both bump levels, and fix paths present', () => {
   const commits = [
     makeCommit('abc1234567', 'feat!: remove old endpoint', 'major'),
     makeCommit('def5678901', 'fix: minor correction', 'patch'),
@@ -119,11 +119,12 @@ test('conflict: heading, both bump levels, and fix options present', () => {
     maxCommitBump: 'major',
   })
   assert.ok(body.includes('[!CAUTION]'), 'caution alert missing')
-  assert.ok(body.includes('Bump Conflict'), 'heading missing')
+  assert.ok(body.includes('Release Intent Mismatch'), 'heading missing')
   assert.ok(body.includes('major'), 'major bump level missing')
   assert.ok(body.includes('patch'), 'title bump level missing')
-  assert.ok(body.includes('Option A'), 'Option A missing')
-  assert.ok(body.includes('Option B'), 'Option B missing')
+  assert.ok(body.includes('If the commit message is correct'), 'title fix path missing')
+  assert.ok(body.includes('overstates the change'), 'commit rewrite path missing')
+  assert.ok(body.includes('squash commit message'), 'squash merge guidance missing')
 })
 
 test('conflict: conflicting commit flagged with warning in table', () => {
@@ -153,6 +154,46 @@ test('conflict: non-conflicting commit shows dash not warning', () => {
   assert.ok(body.includes('--'), 'dash missing for non-bump commit')
 })
 
+test('conflict: major mismatch calls out major release risk', () => {
+  const commits = [makeCommit('abc1234567', 'feat!: break API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('Major version bump detected'), 'major notice missing')
+  assert.ok(body.includes('incompatible release'), 'major risk wording missing')
+})
+
+test('conflict: release context shows default bump and PR raise', () => {
+  const commits = [makeCommit('abc1234567', 'feat!: break API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+    releaseContext: { defaultBranchBump: 'minor' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(body.includes('The default branch already requires a `minor` bump.'), 'default branch context missing')
+  assert.ok(body.includes('This PR would raise the next release to `major`.'), 'PR raise context missing')
+})
+
+test('conflict: release context omits default bump line for none', () => {
+  const commits = [makeCommit('abc1234567', 'feat: add API', 'minor')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
+    title: 'fix: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'minor',
+    releaseContext: { defaultBranchBump: 'none' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(!body.includes('The default branch already requires'), 'none default branch context should be omitted')
+  assert.ok(body.includes('This PR would raise the next release to `minor`.'), 'PR raise context missing')
+})
+
 // --- success ---------------------------------------------------------------------------------------------------------
 
 test('success: minor bump shows correct heading and reason', () => {
@@ -176,6 +217,43 @@ test('success: none bump uses "No Release" heading', () => {
   })
   assert.ok(body.includes('No Release'), 'No Release heading missing')
   assert.ok(body.includes('[!NOTE]'), 'note alert missing for no-release')
+})
+
+test('success: major bump uses warning alert and prominent wording', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'major', errors: [] },
+    title: 'feat!: remove old endpoint',
+    commitAnalysis: [],
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('[!WARNING]'), 'major release should use warning alert')
+  assert.ok(body.includes('Major Version Bump'), 'major heading missing')
+  assert.ok(body.includes('Major version bump detected'), 'major notice missing')
+  assert.ok(body.includes('incompatible release'), 'major risk wording missing')
+})
+
+test('success: release context shows existing default bump even when PR does not raise', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
+    title: 'fix: correct bug',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+    releaseContext: { defaultBranchBump: 'minor' },
+  })
+  assert.ok(body.includes('### Release context'), 'release context heading missing')
+  assert.ok(body.includes('The default branch already requires a `minor` bump.'), 'default branch context missing')
+  assert.ok(!body.includes('This PR would raise'), 'PR raise context should be omitted')
+})
+
+test('success: release context omits section when no line applies', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'none', errors: [] },
+    title: 'chore: cleanup',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+    releaseContext: { defaultBranchBump: 'none' },
+  })
+  assert.ok(!body.includes('### Release context'), 'release context should be omitted when PR does not raise')
 })
 
 test('alert: commit table renders outside the blockquote (tables do not render inside)', () => {
@@ -306,7 +384,7 @@ test('S05: bump cell enum values are never affected by sanitization', () => {
 
 test('F2-01: non-CC commit with breaking footer is flagged in the table', () => {
   // bumpLevel major but subject not valid CC -- must still show the bump + warning.
-  const commits = [makeCommit('abc1234567', 'WIP: stuff', 'major', false)]
+  const commits = [makeCommit('abc1234567', 'WIP: stuff\n\nBREAKING CHANGE: removed API', 'major', false)]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
     title: 'fix: release',
@@ -315,6 +393,7 @@ test('F2-01: non-CC commit with breaking footer is flagged in the table', () => 
   })
   assert.ok(body.includes('**`major`** :warning:'), 'offending commit not flagged')
   assert.ok(body.includes('abc1234'), 'offending SHA missing')
+  assert.ok(body.includes('contains a `BREAKING CHANGE` footer'), 'breaking footer reason missing')
   assert.ok(!body.match(/\| `abc1234` \|[^|]*\| -- \|/), 'offending commit shown as dash')
 })
 
@@ -355,9 +434,9 @@ test('F3-03: major conflict suggests feat!:', () => {
   assert.ok(body.includes('`feat!: add thing`'), 'major suggestion should use feat!:')
 })
 
-// --- Review fix: Option B wording matches conflict kind --------------------------------------------------------------
+// --- Review fix: conflict reason explains why a commit bumps ----------------------------------------------------------
 
-test('F4-01: non-breaking conflict tells user to lower the commit type', () => {
+test('F4-01: feat conflict explains the minor bump reason', () => {
   const commits = [makeCommit('abc1234567', 'feat: new thing', 'minor')]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
@@ -365,11 +444,11 @@ test('F4-01: non-breaking conflict tells user to lower the commit type', () => {
     commitAnalysis: commits,
     maxCommitBump: 'minor',
   })
-  assert.ok(body.includes('lower their type'), 'non-breaking Option B wording missing')
+  assert.ok(body.includes('`feat:` means new functionality'), 'minor bump reason missing')
   assert.ok(!body.includes('breaking-change indicator'), 'must not mention breaking indicator')
 })
 
-test('F4-02: breaking conflict tells user to remove the breaking indicator', () => {
+test('F4-02: breaking conflict explains the major bump reason', () => {
   const commits = [makeCommit('abc1234567', 'feat!: break', 'major')]
   const body = buildComment({
     titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
@@ -377,5 +456,16 @@ test('F4-02: breaking conflict tells user to remove the breaking indicator', () 
     commitAnalysis: commits,
     maxCommitBump: 'major',
   })
-  assert.ok(body.includes('breaking-change indicator'), 'breaking Option B wording missing')
+  assert.ok(body.includes('contains `!`'), 'breaking bump reason missing')
+})
+
+test('F4-03: breaking footer conflict explains the major bump reason', () => {
+  const commits = [makeCommit('abc1234567', 'feat: break\n\nBREAKING CHANGE: removed API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add thing',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('contains a `BREAKING CHANGE` footer'), 'breaking footer reason missing')
 })

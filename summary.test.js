@@ -11,7 +11,7 @@ function commit(sha, message, bumpLevel) {
 test('titleFix returns the strict Conventional Commit format hint', () => {
   assert.equal(
     titleFix({}),
-    'Use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.',
+    'Edit the PR title in GitHub to use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.',
   )
 })
 
@@ -26,8 +26,10 @@ test('buildPullRequestSummary explains a bump conflict and marks the commit', ()
 
   assert.match(summary, /\| Result \| `fail - bump conflict` \|/)
   assert.match(summary, /How to fix/)
+  assert.match(summary, /release intent mismatch/)
   assert.match(summary, /abcdef1/)
   assert.match(summary, /major \(conflict\)/)
+  assert.match(summary, /contains `!`/)
   assert.match(summary, /\| PR comment \| `updated` \|/)
 })
 
