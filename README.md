@@ -3,11 +3,21 @@
 GitHub Action that validates pull request release intent and resolves the next semantic version from
 [Conventional Commit](https://www.conventionalcommits.org/) history.
 
-Designed for squash-merge workflows: the PR title is the release signal, and the default-branch commit history drives
-the concrete version.
+Most release actions either inspect commits after merge or lint pull request titles before merge. Intent connects both
+sides of that workflow:
 
-Use Intent when release decisions should be explicit, reviewable, and consistent: it rejects ambiguous PR titles, checks
-whether commits imply a stronger bump than the title promises, and turns trusted Git history into concrete release tags.
+- **Reviewable release intent before merge.** The PR title declares the intended bump, so reviewers can see and discuss
+  the release impact before the branch lands.
+- **Commit evidence still matters.** Intent checks the PR commits and fails if any commit implies a stronger bump than
+  the title promises, including accidental or hidden breaking-change markers.
+- **Squash-merge friendly by design.** The PR title is the pre-merge signal; after merge, the default-branch commit
+  history becomes the trusted source for concrete release tags.
+- **Release context in the PR.** When relevant, the PR comment shows whether the default branch already requires a bump
+  and whether this PR would raise the projected next release.
+- **One action for guard and resolution.** The same rules validate PRs and later resolve `next-version`, `release-tag`,
+  and floating major/minor tags from Git history.
+
+Use Intent when release decisions should be explicit, reviewable, and consistent instead of inferred only after merge.
 
 ## Getting Started
 
