@@ -124,6 +124,14 @@ function alert(type, contentLines) {
   return [`> [!${type}]`, ...body].join('\n')
 }
 
+function majorNoticeLines() {
+  return [
+    '',
+    '**Major version bump detected.**',
+    'This can publish an incompatible release. Whether this is intended or accidental, confirm the breaking-change signal before merging.',
+  ]
+}
+
 function buildInvalidTitleComment(title) {
   return [
     MARKER,
@@ -166,6 +174,7 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
       `The PR title declares a **\`${titleBump}\`** bump: ${code(title)}`,
       '',
       `One or more commits imply a higher **\`${maxCommitBump}\`** bump.`,
+      ...(maxCommitBump === 'major' ? majorNoticeLines() : []),
       '',
       '**Choose the fix that matches the real intent:**',
       `- If the commit message is correct, update the PR title to declare **\`${maxCommitBump}\`**, e.g. ${example}`,
@@ -180,17 +189,24 @@ function buildConflictComment(title, titleBump, maxCommitBump, commitAnalysis) {
 
 function buildSuccessComment(title, titleBump, commitAnalysis) {
   const isRelease = titleBump !== 'none'
-  const heading = isRelease ? `**Intent &middot; \`${titleBump}\` bump**` : '**Intent &middot; No Release**'
+  const isMajor = titleBump === 'major'
+  const heading = isMajor
+    ? '**Intent &middot; Major Version Bump**'
+    : isRelease
+      ? `**Intent &middot; \`${titleBump}\` bump**`
+      : '**Intent &middot; No Release**'
+  const alertType = isMajor ? 'WARNING' : isRelease ? 'TIP' : 'NOTE'
 
   return [
     MARKER,
     '',
     GENERATED_HEADER,
     '',
-    alert(isRelease ? 'TIP' : 'NOTE', [
+    alert(alertType, [
       heading,
       '',
       `The PR title ${code(title)} sets the intended release to a **\`${titleBump}\`** bump.`,
+      ...(isMajor ? majorNoticeLines() : []),
       '',
       `**Why:** ${BUMP_REASON[titleBump]}.`,
     ]),

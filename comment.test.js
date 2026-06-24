@@ -154,6 +154,18 @@ test('conflict: non-conflicting commit shows dash not warning', () => {
   assert.ok(body.includes('--'), 'dash missing for non-bump commit')
 })
 
+test('conflict: major mismatch calls out major release risk', () => {
+  const commits = [makeCommit('abc1234567', 'feat!: break API', 'major')]
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add API',
+    commitAnalysis: commits,
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('Major version bump detected'), 'major notice missing')
+  assert.ok(body.includes('incompatible release'), 'major risk wording missing')
+})
+
 // --- success ---------------------------------------------------------------------------------------------------------
 
 test('success: minor bump shows correct heading and reason', () => {
@@ -177,6 +189,19 @@ test('success: none bump uses "No Release" heading', () => {
   })
   assert.ok(body.includes('No Release'), 'No Release heading missing')
   assert.ok(body.includes('[!NOTE]'), 'note alert missing for no-release')
+})
+
+test('success: major bump uses warning alert and prominent wording', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'major', errors: [] },
+    title: 'feat!: remove old endpoint',
+    commitAnalysis: [],
+    maxCommitBump: 'major',
+  })
+  assert.ok(body.includes('[!WARNING]'), 'major release should use warning alert')
+  assert.ok(body.includes('Major Version Bump'), 'major heading missing')
+  assert.ok(body.includes('Major version bump detected'), 'major notice missing')
+  assert.ok(body.includes('incompatible release'), 'major risk wording missing')
 })
 
 test('alert: commit table renders outside the blockquote (tables do not render inside)', () => {
