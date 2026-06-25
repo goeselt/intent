@@ -125,8 +125,8 @@ gh api --method PATCH repos/OWNER/REPO \
 
 This matters most for PRs with exactly one commit. With GitHub's `COMMIT_OR_PR_TITLE` setting, GitHub can keep the
 single commit subject instead of the PR title. For example, a PR titled `fix!: update API` with one commit
-`fix: update API` can be validated as a major bump before merge, but land on the default branch as a patch commit.
-The later `push` release job only sees the default-branch commit history, so the major bump would be lost.
+`fix: update API` can be validated as a major bump before merge, but land on the default branch as a patch commit. The
+later `push` release job only sees the default-branch commit history, so the major bump would be lost.
 
 Intent warns in the PR comment when the PR title declares a stronger bump than the only commit in the PR. The warning is
 non-blocking, but in `pr-comment: failures` mode it still creates a comment because the author needs to check the final
