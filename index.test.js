@@ -237,6 +237,40 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
   }
 })
 
+test('runPullRequest comments and warns when a single commit could drop the PR title bump', async () => {
+  let commentBody = ''
+
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload({ pull_request: { number: 123, title: 'fix!: update storefront representation' } }),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () =>
+          Promise.resolve([
+            {
+              sha: 'abc123456789',
+              commit: { message: 'fix: update storefront representation' },
+            },
+          ]),
+        ...noReleaseContext(),
+        upsert: (_token, _repo, _prNumber, _marker, body) => {
+          commentBody = body
+          return Promise.resolve()
+        },
+      }),
+    ),
+  )
+
+  assert.match(output, /::warning title=Intent::PR title signals major/)
+  assert.match(output, /squash-title-warning=true/)
+  assert.match(output, /comment=updated/)
+  assert.match(output, /result=pass/)
+  assert.match(commentBody, /### Squash merge warning/)
+  assert.match(commentBody, /PR title declares a `major` bump/)
+  assert.match(commentBody, /only commit in this PR implies `patch`/)
+})
+
 test('runPullRequest adds release context to the PR comment', async () => {
   let commentBody = ''
   let comparedBase = ''

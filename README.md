@@ -28,6 +28,8 @@ an explanatory comment on the PR only when something needs attention.
 
 When a PR comment is posted, Intent also includes release context from the default branch when relevant: the current
 default-branch bump since the latest matching release tag, and whether this PR would raise the projected next release.
+For squash-merge repositories, configure GitHub to use the PR title as the squash commit title; otherwise a single
+commit PR can lose a stronger PR-title bump during merge. Intent warns when it detects that risk.
 
 ```yaml
 on:
