@@ -191,6 +191,18 @@ async function resolvePullRequestReleaseContext({
   return { defaultBranchBump }
 }
 
+function squashTitleWarning(titleResult, commitAnalysis, maxCommitBump) {
+  if (!titleResult.valid || commitAnalysis.length !== 1) return null
+  if (!bumpGt(titleResult.bumpLevel, maxCommitBump)) return null
+
+  const [{ sha }] = commitAnalysis
+  return {
+    titleBump: titleResult.bumpLevel,
+    commitBump: maxCommitBump,
+    sha,
+  }
+}
+
 function appendStepSummary(content) {
   const summaryFile = process.env['GITHUB_STEP_SUMMARY']
   if (!summaryFile) return
@@ -247,10 +259,18 @@ async function runPullRequest({
     return bumpGt(bump, max) ? bump : max
   }, 'none')
   const hasConflict = titleResult.valid && bumpGt(maxCommitBump, titleResult.bumpLevel)
+  const titleWarning = squashTitleWarning(titleResult, commitAnalysis, maxCommitBump)
   log(`commits-analyzed=${commitAnalysis.length} max-commit-bump=${maxCommitBump}`)
+  if (titleWarning) {
+    const shortSha = String(titleWarning.sha ?? '').slice(0, 7)
+    warn(
+      `PR title signals ${titleWarning.titleBump} but the only commit ${shortSha} signals ${titleWarning.commitBump}; squash merge settings may drop the stronger PR-title signal`,
+    )
+    log('squash-title-warning=true')
+  }
 
   const shouldPostComment =
-    commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict))
+    commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict || titleWarning))
   let commentStatus
   if (shouldPostComment) {
     try {
@@ -275,7 +295,14 @@ async function runPullRequest({
         repo,
         prNumber,
         MARKER,
-        buildComment({ titleResult, title, commitAnalysis, maxCommitBump, releaseContext }),
+        buildComment({
+          titleResult,
+          title,
+          commitAnalysis,
+          maxCommitBump,
+          releaseContext,
+          squashTitleWarning: titleWarning,
+        }),
         [GENERATED_HEADER, GENERATED_FOOTER],
       )
       log('comment=updated')

@@ -256,6 +256,20 @@ test('success: release context omits section when no line applies', () => {
   assert.ok(!body.includes('### Release context'), 'release context should be omitted when PR does not raise')
 })
 
+test('success: squash merge warning appears when title bump exceeds the only commit bump', () => {
+  const body = buildComment({
+    titleResult: { valid: true, bumpLevel: 'major', errors: [] },
+    title: 'fix!: update storefront representation',
+    commitAnalysis: [makeCommit('abc1234567', 'fix: update storefront representation', 'patch')],
+    maxCommitBump: 'patch',
+    squashTitleWarning: { titleBump: 'major', commitBump: 'patch' },
+  })
+  assert.ok(body.includes('### Squash merge warning'), 'squash warning heading missing')
+  assert.ok(body.includes('PR title declares a `major` bump'), 'title bump warning missing')
+  assert.ok(body.includes('only commit in this PR implies `patch`'), 'commit bump warning missing')
+  assert.ok(body.includes('final squash commit title keeps the PR title'), 'squash fix guidance missing')
+})
+
 test('alert: commit table renders outside the blockquote (tables do not render inside)', () => {
   const commits = [makeCommit('abc1234567', 'feat!: break', 'major')]
   const body = buildComment({
