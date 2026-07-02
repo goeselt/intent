@@ -8,7 +8,7 @@ function makeCommit(sha, message, bumpLevel, valid = true) {
   return { sha, message, result: { valid, bumpLevel, errors: [] } }
 }
 
-// --- marker always present -------------------------------------------------------------------------------------------
+// -- marker always present --------------------------------------------------------------------------------------------
 
 test('MARKER is always present in output', () => {
   const body = buildComment({
@@ -66,7 +66,7 @@ test('buildFooter renders a stable UTC timestamp and generated signature', () =>
   assert.ok(body.includes(GENERATED_FOOTER), 'generated footer sentinel missing')
 })
 
-// --- invalid title ---------------------------------------------------------------------------------------------------
+// -- invalid title ----------------------------------------------------------------------------------------------------
 
 test('invalid title: heading and format hint present', () => {
   const body = buildComment({
@@ -105,7 +105,7 @@ test('invalid title: aliases use the strict format hint', () => {
   assert.ok(body.includes('Edit the PR title in GitHub'), 'strict format hint missing')
 })
 
-// --- bump conflict ---------------------------------------------------------------------------------------------------
+// -- bump conflict ----------------------------------------------------------------------------------------------------
 
 test('conflict: heading, both bump levels, and fix paths present', () => {
   const commits = [
@@ -194,7 +194,7 @@ test('conflict: release context omits default bump line for none', () => {
   assert.ok(body.includes('This PR would raise the next release to `minor`.'), 'PR raise context missing')
 })
 
-// --- success ---------------------------------------------------------------------------------------------------------
+// -- success ----------------------------------------------------------------------------------------------------------
 
 test('success: minor bump shows correct heading and reason', () => {
   const body = buildComment({
@@ -309,7 +309,7 @@ test('success: no details section when no commits provided', () => {
   assert.ok(!body.includes('<details>'), 'unexpected details section')
 })
 
-// --- commit table ----------------------------------------------------------------------------------------------------
+// -- commit table -----------------------------------------------------------------------------------------------------
 
 test('non-CC commit shows dash in table', () => {
   const commits = [makeCommit('abc1234567', 'Update README', 'none', false)]
@@ -337,7 +337,7 @@ test('long subject truncated to 72 chars in table', () => {
   assert.ok(body.includes('...'), 'truncation indicator missing')
 })
 
-// --- Markdown sanitization -------------------------------------------------------------------------------------------
+// -- Markdown sanitization --------------------------------------------------------------------------------------------
 
 test('S01: backtick in title cannot break out of the inline-code span', () => {
   const body = buildComment({
@@ -394,7 +394,7 @@ test('S05: bump cell enum values are never affected by sanitization', () => {
   assert.ok(body.includes('**`major`** :warning:'), 'conflict bump cell missing')
 })
 
-// --- Review fix: hidden breaking footer (non-CC subject) -------------------------------------------------------------
+// -- Review fix: hidden breaking footer (non-CC subject) --------------------------------------------------------------
 
 test('F2-01: non-CC commit with breaking footer is flagged in the table', () => {
   // bumpLevel major but subject not valid CC -- must still show the bump + warning.
@@ -411,7 +411,7 @@ test('F2-01: non-CC commit with breaking footer is flagged in the table', () => 
   assert.ok(!body.match(/\| `abc1234` \|[^|]*\| -- \|/), 'offending commit shown as dash')
 })
 
-// --- Review fix: fix-suggestion matches the required bump ------------------------------------------------------------
+// -- Review fix: fix-suggestion matches the required bump -------------------------------------------------------------
 
 test('F3-01: patch conflict suggests fix:, not feat:', () => {
   const commits = [makeCommit('abc1234567', 'fix: small bug', 'patch')]
@@ -448,7 +448,7 @@ test('F3-03: major conflict suggests feat!:', () => {
   assert.ok(body.includes('`feat!: add thing`'), 'major suggestion should use feat!:')
 })
 
-// --- Review fix: conflict reason explains why a commit bumps ----------------------------------------------------------
+// -- Review fix: conflict reason explains why a commit bumps ----------------------------------------------------------
 
 test('F4-01: feat conflict explains the minor bump reason', () => {
   const commits = [makeCommit('abc1234567', 'feat: new thing', 'minor')]

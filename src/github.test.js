@@ -7,6 +7,9 @@ const https = require('node:https')
 const { commentMatches, request, requestOptions, MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_MS } = require('./github.js')
 const { GENERATED_FOOTER, GENERATED_HEADER } = require('./comment.js')
 
+// GitHub Actions always provides GITHUB_API_URL; the transport tests below rely on it being set.
+if (!process.env.GITHUB_API_URL) process.env.GITHUB_API_URL = 'https://api.github.com'
+
 test('commentMatches only matches marker comments by the authenticated author', () => {
   const marker = '<!-- intent -->'
   assert.equal(
@@ -89,6 +92,24 @@ test('requestOptions uses GITHUB_API_URL including enterprise path prefix', () =
     const options = requestOptions('GET', '/repos/owner/repo/pulls/1/commits', 'token')
     assert.equal(options.hostname, 'company.ghe.com')
     assert.equal(options.path, '/api/v3/repos/owner/repo/pulls/1/commits')
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_API_URL
+    else process.env.GITHUB_API_URL = previous
+  }
+})
+
+test('requestOptions throws when GITHUB_API_URL is empty or unset', () => {
+  const previous = process.env.GITHUB_API_URL
+
+  try {
+    for (const value of [undefined, '']) {
+      if (value === undefined) delete process.env.GITHUB_API_URL
+      else process.env.GITHUB_API_URL = value
+      assert.throws(
+        () => requestOptions('GET', '/repos/owner/repo/pulls/1/commits', 'token'),
+        /GITHUB_API_URL is not set/,
+      )
+    }
   } finally {
     if (previous === undefined) delete process.env.GITHUB_API_URL
     else process.env.GITHUB_API_URL = previous

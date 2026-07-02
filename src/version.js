@@ -203,9 +203,9 @@ function buildReleasePathspecs(releasePaths, releaseIgnorePaths) {
   return [...includes, ...excludes]
 }
 
-// Builds `git log` arguments. Without a previous tag, the range is HEAD (commits
-// reachable from the current branch) -- never --all, which would pull in commits
-// from unrelated refs and could inflate the bump.
+// Builds `git log` arguments.
+// Without a previous tag, the range is HEAD (commits reachable from the current branch) -- never --all, which would
+// pull in commits from unrelated refs and could inflate the bump.
 function buildLogArgs(previousTag, pathspecs = []) {
   const args = ['log', '--format=%x00%B', previousTag ? `${previousTag}..HEAD` : 'HEAD']
   if (pathspecs.length > 0) {

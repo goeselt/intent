@@ -14,7 +14,8 @@ const BUMP_REASON = {
   none: 'no releasable change (`chore`, `docs`, `ci`, ...)',
 }
 
-// --- Markdown sanitization -------------------------------------------------------------------------------------------
+// -- Markdown sanitization --------------------------------------------------------------------------------------------
+
 // User-controlled strings (PR title, commit subjects) are always rendered inside an inline-code span.
 // That neutralizes @mentions and #refs (no stray notifications) and most Markdown.
 // Two characters still need handling:
@@ -119,7 +120,7 @@ function detailsSection(commitAnalysis, titleBump) {
   ].join('\n')
 }
 
-// --- Comment variants ------------------------------------------------------------------------------------------------
+// -- Comment variants -------------------------------------------------------------------------------------------------
 
 // GitHub Markdown alert. A failing check uses CAUTION (red) so it is hard to miss.
 // Content lines are blockquote-prefixed; an empty string becomes a quoted blank line.

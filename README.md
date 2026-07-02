@@ -44,7 +44,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: goeselt/intent@v1
+      - uses: goeselt/intent@<sha>
 ```
 
 > [!NOTE]
@@ -69,21 +69,20 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@<sha>
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # full history needed to find the previous release tag
 
       - id: intent
-        uses: goeselt/intent@v1
+        uses: goeselt/intent@<sha>
 
       - name: Dispatch
         if: steps.intent.outputs.release-needed == 'true'
-        uses: goeselt/dispatch@v1
+        uses: goeselt/dispatch@<sha>
         with:
           release-tag: ${{ steps.intent.outputs.release-tag }}
           major-tag: ${{ steps.intent.outputs.major-tag }}
           minor-tag: ${{ steps.intent.outputs.minor-tag }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 For fork PRs, tag protection, scoped releases, and path filters, see the [Integration Guide](docs/integration-guide.md).

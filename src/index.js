@@ -29,7 +29,7 @@ const {
   validate,
 } = require('./version.js')
 
-// --- Logging and workflow commands -----------------------------------------------------------------------------------
+// -- Logging and workflow commands ------------------------------------------------------------------------------------
 
 // Diagnostic markers. Narrative lines carry a greppable `[intent]` prefix;
 // problems use GitHub workflow-command annotations (which also carry `Intent` so they stay greppable).
@@ -55,14 +55,18 @@ function fail(message) {
 
 // A 403 from the comment endpoints almost always means the job's GITHUB_TOKEN lacks the `pull-requests: write`
 // permission -- the single most common cause, and the one actionable from the workflow file alone.
+// A 401 means the token itself is not accepted, e.g. an expired or mistyped PAT passed via `github-token`.
 function describeCommentFailure(err) {
+  if (/HTTP 401/.test(err.message)) {
+    return `could not post PR comment (authentication failed): ${err.message} -- check that the github-token input holds a valid, unexpired token`
+  }
   if (/HTTP 403/.test(err.message)) {
     return `could not post PR comment (permission denied): ${err.message} -- grant "pull-requests: write" permission to this job`
   }
   return `could not post PR comment: ${err.message}`
 }
 
-// --- Inputs, files, and shell boundaries -----------------------------------------------------------------------------
+// -- Inputs, files, and shell boundaries ------------------------------------------------------------------------------
 
 function input(name, fallback = '') {
   return process.env[`INPUT_${name.toUpperCase()}`] ?? fallback
@@ -80,11 +84,31 @@ function parseCommentMode(value) {
   if (raw === 'true' || raw === 'always') return 'always'
   if (raw === 'false' || raw === 'never') return 'never'
   if (raw === 'failure' || raw === 'failures') return 'failures'
-  throw new Error(`pr-comment must be true, false, or failures, got ${JSON.stringify(raw)}`)
+  throw new Error(`pr-comment must be one of: failures, true, always, false, never; got ${JSON.stringify(raw)}`)
 }
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' })
+}
+
+// Version resolution reads tags and commit history from the local clone. A missing checkout or a shallow clone
+// would not error on its own -- `git tag --list` simply returns nothing, and the run would silently resolve
+// `initial-version` again, re-proposing an already released tag. Fail fast with the actionable fix instead.
+function assertGitHistory(execGit) {
+  let shallow
+  try {
+    shallow = execGit(['rev-parse', '--is-shallow-repository'])
+  } catch (err) {
+    throw new Error(
+      `version resolution needs the repository checked out (run actions/checkout first): ${firstLine(err.message)}`,
+      { cause: err },
+    )
+  }
+  if (shallow.trim() === 'true') {
+    throw new Error(
+      'shallow clone detected: tags and commit history may be missing, which can resolve a wrong version -- use actions/checkout with "fetch-depth: 0"',
+    )
+  }
 }
 
 function eventPayload() {
@@ -95,6 +119,23 @@ function eventPayload() {
 
 function isPREvent(eventName) {
   return eventName === 'pull_request' || eventName === 'pull_request_target'
+}
+
+// Both values are interpolated into GitHub API URL paths. The event payload is runner-provided and normally
+// trustworthy, but validating the shape here keeps a synthetic or truncated payload from turning into a
+// request against an unintended API route.
+const REPO_FULL_NAME_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+
+function validateRepoFullName(repo) {
+  if (!REPO_FULL_NAME_RE.test(String(repo ?? ''))) {
+    throw new Error(`repository.full_name must look like "owner/repo", got ${JSON.stringify(repo)}`)
+  }
+}
+
+function validatePRNumber(prNumber) {
+  if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+    throw new Error(`pull_request.number must be a positive integer, got ${JSON.stringify(prNumber)}`)
+  }
 }
 
 function setOutput(name, value) {
@@ -209,7 +250,7 @@ function appendStepSummary(content) {
   fs.appendFileSync(summaryFile, `${content.trimEnd()}\n`)
 }
 
-// --- Modes -----------------------------------------------------------------------------------------------------------
+// -- Modes ------------------------------------------------------------------------------------------------------------
 
 async function runPullRequest({
   payload,
@@ -228,9 +269,11 @@ async function runPullRequest({
 
   const repo = payload.repository?.full_name
   if (!repo) throw new Error('repository.full_name is missing from event payload')
+  validateRepoFullName(repo)
 
   const title = pr.title ?? ''
   const prNumber = pr.number
+  validatePRNumber(prNumber)
   const defaultBranch = payload.repository?.default_branch ?? pr.base?.repo?.default_branch ?? pr.base?.ref ?? ''
   const titleResult = validate(title)
   const commentMode = parseCommentMode(postComment)
@@ -345,7 +388,7 @@ async function runPullRequest({
   log(`result=pass title-bump=${titleResult.bumpLevel} release-needed=${titleResult.bumpLevel !== 'none'}`)
 }
 
-function runVersion() {
+function runVersion({ execGit = git } = {}) {
   const scope = input('RELEASE-SCOPE')
   const prefix = input('TAG-PREFIX', 'v')
   const initialVersion = input('INITIAL-VERSION', '0.0.0')
@@ -374,14 +417,16 @@ function runVersion() {
   if (releaseIgnorePaths.length > 0) log(`release-ignore-paths=${releaseIgnorePaths.join(' ')}`)
   if (reservedTags.length > 0) log(`reserved-tags=${reservedTags.length} configured`)
 
+  assertGitHistory(execGit)
+
   const tagPattern = scope ? `${scope}/${prefix}*` : `${prefix}*`
-  const tagOutput = git(['tag', '--list', tagPattern, '--sort=-v:refname'])
+  const tagOutput = execGit(['tag', '--list', tagPattern, '--sort=-v:refname'])
   const previousTag = findLatestTag(tagOutput, scope, prefix)
   log(`tag-pattern=${tagPattern} previous-tag=${previousTag || '-'}`)
 
   const pathspecs = buildReleasePathspecs(releasePaths, releaseIgnorePaths)
   if (pathspecs.length > 0) log(`git-pathspecs=${pathspecs.join(' ')}`)
-  const commitMessages = parseCommitLog(git(buildLogArgs(previousTag, pathspecs)))
+  const commitMessages = parseCommitLog(execGit(buildLogArgs(previousTag, pathspecs)))
   log(`commits-analyzed=${commitMessages.length}`)
 
   const result = resolveVersion({ initialVersion, tagOutput, commitMessages, scope, prefix, reservedTags })
@@ -447,13 +492,17 @@ if (require.main === module) {
 }
 
 module.exports = {
+  assertGitHistory,
   describeCommentFailure,
   describeReservedTagsSkipped,
   escapeCommandValue,
   main,
   parseCommentMode,
   runPullRequest,
+  runVersion,
   setOutput,
+  validatePRNumber,
+  validateRepoFullName,
   validateTagComponent,
   validateNoControlCharacters,
 }
