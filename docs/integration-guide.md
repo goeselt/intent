@@ -28,14 +28,14 @@ on:
     types: [opened, synchronize, reopened, edited]
 
 permissions:
-  contents: read
-  pull-requests: write
+  contents: read # read commit history
+  pull-requests: write # post PR comment
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: goeselt/intent@v1
+      - uses: goeselt/intent@<sha>
 ```
 
 ### Activity Types
@@ -70,7 +70,7 @@ jobs:
   intent:
     runs-on: ubuntu-latest
     steps:
-      - uses: goeselt/intent@v1
+      - uses: goeselt/intent@<sha>
 ```
 
 ```yaml
@@ -162,19 +162,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@<sha>
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # full history needed to find the previous release tag
 
       - id: intent
-        uses: goeselt/intent@v1
+        uses: goeselt/intent@<sha>
 ```
 
 ### Fetch Depth
 
 Version Resolution requires `fetch-depth: 0`. Shallow clones may not contain the tags and commit history needed to
-resolve the next version. The default `fetch-depth: 1` used by build and test jobs will cause version resolution to fail
-or produce incorrect results.
+resolve the next version. Intent detects shallow clones and missing checkouts and fails with an error instead of
+silently resolving a wrong version from incomplete history.
 
 ### Tag Namespace Protection
 
@@ -237,7 +237,7 @@ Independently version a component within a monorepo. Tags become `cli/v1.2.3`; f
 
 ```yaml
 - id: intent
-  uses: goeselt/intent@v1
+  uses: goeselt/intent@<sha>
   with:
     release-scope: cli
     release-paths: |
@@ -256,7 +256,7 @@ Protect the `cli/v*` tag namespace in repository settings.
 Use the version outputs -- without the Git tag prefix or release scope -- to build and push Docker image tags:
 
 ```yaml
-- uses: docker/build-push-action@v6
+- uses: docker/build-push-action@<sha>
   if: steps.intent.outputs.release-needed == 'true'
   with:
     tags: |
@@ -273,7 +273,7 @@ Three options depending on visibility requirements:
 
 ```yaml
 - id: intent
-  uses: goeselt/intent@v1
+  uses: goeselt/intent@<sha>
   with:
     reserved-tags: ${{ vars.INTENT_RESERVED_TAGS }}
 ```
@@ -282,7 +282,7 @@ Three options depending on visibility requirements:
 
 ```yaml
 - id: intent
-  uses: goeselt/intent@v1
+  uses: goeselt/intent@<sha>
   with:
     reserved-tags: ${{ secrets.INTENT_RESERVED_TAGS }}
 ```
@@ -291,7 +291,7 @@ Three options depending on visibility requirements:
 
 ```yaml
 - id: intent
-  uses: goeselt/intent@v1
+  uses: goeselt/intent@<sha>
   with:
     reserved-tags: |
       v1.2.3
@@ -302,7 +302,7 @@ Three options depending on visibility requirements:
 **Always comment** -- create or update the sticky comment even when the PR passes, useful for audit trails:
 
 ```yaml
-- uses: goeselt/intent@v1
+- uses: goeselt/intent@<sha>
   with:
     pr-comment: true
 ```
@@ -310,7 +310,7 @@ Three options depending on visibility requirements:
 **Silent check** -- validation results appear in annotations and the job summary only; no PR comment is posted:
 
 ```yaml
-- uses: goeselt/intent@v1
+- uses: goeselt/intent@<sha>
   with:
     pr-comment: false
 ```

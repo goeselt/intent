@@ -6,12 +6,16 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const {
+  assertGitHistory,
   describeCommentFailure,
   describeReservedTagsSkipped,
   escapeCommandValue,
   parseCommentMode,
   runPullRequest,
+  runVersion,
   setOutput,
+  validatePRNumber,
+  validateRepoFullName,
   validateTagComponent,
 } = require('./index.js')
 const { MAX_PR_COMMITS } = require('./github.js')
@@ -83,7 +87,7 @@ test('parseCommentMode accepts legacy booleans and the failures mode', () => {
   assert.equal(parseCommentMode('never'), 'never')
   assert.equal(parseCommentMode('failures'), 'failures')
   assert.equal(parseCommentMode('failure'), 'failures')
-  assert.throws(() => parseCommentMode('sometimes'), /true, false, or failures/)
+  assert.throws(() => parseCommentMode('sometimes'), /failures, true, always, false, never/)
 })
 
 test('validateTagComponent rejects values that can inject logs or outputs', () => {
@@ -91,6 +95,39 @@ test('validateTagComponent rejects values that can inject logs or outputs', () =
   assert.throws(() => validateTagComponent('tag-prefix', '-v'), /must not start/)
   assert.doesNotThrow(() => validateTagComponent('release-scope', 'tool'))
   assert.doesNotThrow(() => validateTagComponent('tag-prefix', 'v'))
+})
+
+test('validateRepoFullName accepts owner/repo and rejects path-like values', () => {
+  assert.doesNotThrow(() => validateRepoFullName('goeselt/example'))
+  assert.doesNotThrow(() => validateRepoFullName('my-org/my.repo_1'))
+  assert.throws(() => validateRepoFullName('goeselt'), /owner\/repo/)
+  assert.throws(() => validateRepoFullName('goeselt/example/../other'), /owner\/repo/)
+  assert.throws(() => validateRepoFullName('goeselt/example?per_page=1'), /owner\/repo/)
+})
+
+test('validatePRNumber accepts only positive integers', () => {
+  assert.doesNotThrow(() => validatePRNumber(123))
+  assert.throws(() => validatePRNumber(0), /positive integer/)
+  assert.throws(() => validatePRNumber(-1), /positive integer/)
+  assert.throws(() => validatePRNumber('123/comments'), /positive integer/)
+  assert.throws(() => validatePRNumber(), /positive integer/)
+})
+
+test('assertGitHistory fails with checkout guidance when git has no repository', () => {
+  const execGit = () => {
+    throw new Error('fatal: not a git repository (or any of the parent directories): .git')
+  }
+  assert.throws(() => assertGitHistory(execGit), /run actions\/checkout first/)
+})
+
+test('assertGitHistory fails with fetch-depth guidance on shallow clones', () => {
+  const execGit = () => 'true\n'
+  assert.throws(() => assertGitHistory(execGit), /fetch-depth: 0/)
+})
+
+test('assertGitHistory accepts a full clone', () => {
+  const execGit = () => 'false\n'
+  assert.doesNotThrow(() => assertGitHistory(execGit))
 })
 
 test('setOutput uses GitHub multiline output syntax for newline values', () => {
@@ -112,6 +149,12 @@ test('setOutput uses GitHub multiline output syntax for newline values', () => {
     }
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('describeCommentFailure adds token guidance for HTTP 401 responses', () => {
+  const err = new Error('GitHub API POST /repos/x/y/issues/1/comments --> HTTP 401: {"message":"Bad credentials"}')
+  assert.match(describeCommentFailure(err), /authentication failed/)
+  assert.match(describeCommentFailure(err), /github-token/)
 })
 
 test('describeCommentFailure adds permission guidance for HTTP 403 responses', () => {
@@ -299,4 +342,88 @@ test('runPullRequest adds release context to the PR comment', async () => {
   assert.match(commentBody, /### Release context/)
   assert.match(commentBody, /The default branch already requires a `minor` bump\./)
   assert.match(commentBody, /This PR would raise the next release to `major`\./)
+})
+
+test('runPullRequest rejects a malformed repository full name before any API call', async () => {
+  let apiCalled = false
+  await silenceStdout(async () => {
+    await assert.rejects(
+      () =>
+        runPullRequest({
+          payload: payload({ repository: { full_name: 'goeselt/example/../evil', default_branch: 'main' } }),
+          token: 'token',
+          getCommits: () => {
+            apiCalled = true
+            return Promise.resolve([])
+          },
+        }),
+      /owner\/repo/,
+    )
+  })
+  assert.equal(apiCalled, false)
+})
+
+test('runPullRequest rejects a non-integer PR number before any API call', async () => {
+  let apiCalled = false
+  await silenceStdout(async () => {
+    await assert.rejects(
+      () =>
+        runPullRequest({
+          payload: payload({ pull_request: { number: '123/comments', title: 'fix: correct release' } }),
+          token: 'token',
+          getCommits: () => {
+            apiCalled = true
+            return Promise.resolve([])
+          },
+        }),
+      /positive integer/,
+    )
+  })
+  assert.equal(apiCalled, false)
+})
+
+function fakeVersionGit({ shallow = 'false', tags = 'v1.2.3\nv1.2.0\n', log = '\x00feat: add thing\x00' } = {}) {
+  return (args) => {
+    if (args[0] === 'rev-parse') return `${shallow}\n`
+    if (args[0] === 'tag') return tags
+    if (args[0] === 'log') return log
+    throw new Error(`unexpected git call: ${args.join(' ')}`)
+  }
+}
+
+test('runVersion resolves the next version from tags and commit history', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-version-'))
+  const outputFile = path.join(dir, 'output')
+  const previousOutput = process.env.GITHUB_OUTPUT
+  process.env.GITHUB_OUTPUT = outputFile
+
+  try {
+    const output = await withoutStepSummary(() => captureStdout(() => runVersion({ execGit: fakeVersionGit() })))
+
+    assert.match(output, /result=pass release-needed=true bump=minor current=1\.2\.3 next=1\.3\.0/)
+    const written = fs.readFileSync(outputFile, 'utf8')
+    assert.match(written, /^release-needed=true$/m)
+    assert.match(written, /^next-version=1\.3\.0$/m)
+    assert.match(written, /^release-tag=v1\.3\.0$/m)
+    assert.match(written, /^previous-tag=v1\.2\.3$/m)
+  } finally {
+    if (previousOutput === undefined) {
+      delete process.env.GITHUB_OUTPUT
+    } else {
+      process.env.GITHUB_OUTPUT = previousOutput
+    }
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('runVersion fails fast on a shallow clone instead of resolving a wrong version', async () => {
+  let versionGitCalled = false
+  const execGit = (args) => {
+    if (args[0] === 'rev-parse') return 'true\n'
+    versionGitCalled = true
+    return ''
+  }
+
+  await silenceStdout(() => assert.throws(() => runVersion({ execGit }), /fetch-depth: 0/))
+  assert.equal(versionGitCalled, false)
 })

@@ -2,16 +2,16 @@
 
 ## Design
 
-Pure Node.js standard library -- no runtime dependencies, no build step. The entry point `index.js` is committed as-is
-and referenced directly by `action.yml` (`runs.using: node24`).
+Pure Node.js standard library -- no runtime dependencies, no build step. The source lives under `src/`. The entry point
+`src/index.js` is committed as-is and referenced directly by `action.yml` (`runs.using: node24`, `main: src/index.js`).
 
-| File         | Responsibility                                                                            |
-| ------------ | ----------------------------------------------------------------------------------------- |
-| `index.js`   | Event routing, input parsing, Git command wiring, outputs, and mode orchestration.        |
-| `version.js` | Conventional Commit parsing, PR bump validation, tag/pathspec helpers, version resolving. |
-| `comment.js` | Markdown PR comment rendering and PR-comment sanitization.                                |
-| `summary.js` | GitHub job summary rendering. Pure formatting only; no filesystem writes.                 |
-| `github.js`  | GitHub REST calls: list PR commits, resolve posting identity, upsert comment.             |
+| File             | Responsibility                                                                            |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `src/index.js`   | Event routing, input parsing, Git command wiring, outputs, and mode orchestration.        |
+| `src/version.js` | Conventional Commit parsing, PR bump validation, tag/pathspec helpers, version resolving. |
+| `src/comment.js` | Markdown PR comment rendering and PR-comment sanitization.                                |
+| `src/summary.js` | GitHub job summary rendering. Pure formatting only; no filesystem writes.                 |
+| `src/github.js`  | GitHub REST calls: list PR commits, resolve posting identity, upsert comment.             |
 
 `pull_request` events run PR validation only; all other events run version resolution only. Push mode requires
 `actions/checkout` with `fetch-depth: 0` -- shallow clones may not contain the tags and commit history needed to resolve
@@ -21,15 +21,16 @@ the next version.
 
 If you change:
 
-- Conventional Commit rules or bump semantics, update `version.js` and `version.test.js`.
-- PR comment wording or Markdown tables, update `comment.js` and `comment.test.js`.
-- Job summary wording, update `summary.js` and `summary.test.js`.
-- GitHub API behavior or sticky-comment matching, update `github.js` and `github.test.js`.
-- Inputs, outputs, event-mode wiring, logs, or exit behavior, update `index.js`, `index.test.js`, `action.yml`, and
-  usually `README.md`.
+- Conventional Commit rules or bump semantics, update `src/version.js` and `src/version.test.js`.
+- PR comment wording or Markdown tables, update `src/comment.js` and `src/comment.test.js`.
+- Job summary wording, update `src/summary.js` and `src/summary.test.js`.
+- GitHub API behavior or sticky-comment matching, update `src/github.js` and `src/github.test.js`.
+- Inputs, outputs, event-mode wiring, logs, or exit behavior, update `src/index.js`, `src/index.test.js`, `action.yml`,
+  and usually `README.md`.
 
-Keep `index.js` boring. It should read as: load inputs, route event, call domain helpers, write outputs/summary, set the
-exit code. Prefer moving formatting into `comment.js` or `summary.js` and pure release logic into `version.js`.
+Keep `src/index.js` boring. It should read as: load inputs, route event, call domain helpers, write outputs/summary, set
+the exit code. Prefer moving formatting into `src/comment.js` or `src/summary.js` and pure release logic into
+`src/version.js`.
 
 ## Invariants
 
