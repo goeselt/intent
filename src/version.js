@@ -4,7 +4,10 @@ const TYPES = new Set(['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'r
 
 const BUMP_ORDER = { none: 0, patch: 1, minor: 2, major: 3 }
 const HEADER_RE = /^([a-z]+)(\([^)]+\))?(!)?: (.*)$/
-const BREAKING_FOOTER_RE = /^BREAKING[ -]CHANGE:/
+// Case-insensitive header probe used only to produce a precise "type must be lowercase" error.
+const HEADER_ANY_CASE_RE = /^([A-Za-z]+)(\([^)]+\))?(!)?: (.*)$/
+// Conventional Commits allows ": " and " #" as footer separators; the bare colon also matches ": ".
+const BREAKING_FOOTER_RE = /^BREAKING[ -]CHANGE(?::| #)/
 const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const MAX_RESERVED_TAG_SKIPS = 100
 
@@ -32,6 +35,14 @@ function validate(rawTitle) {
 
   const match = title.match(HEADER_RE)
   if (!match) {
+    const anyCase = title.match(HEADER_ANY_CASE_RE)
+    if (anyCase && TYPES.has(anyCase[1].toLowerCase())) {
+      return {
+        valid: false,
+        bumpLevel: null,
+        errors: [`type "${anyCase[1]}" must be lowercase: use "${anyCase[1].toLowerCase()}"`, `got: ${title}`],
+      }
+    }
     return {
       valid: false,
       bumpLevel: null,
@@ -61,6 +72,19 @@ function validate(rawTitle) {
   return { valid: true, bumpLevel, errors: [] }
 }
 
+/** True when any line of the message is a BREAKING CHANGE footer. */
+function hasBreakingFooter(message) {
+  return String(message ?? '')
+    .split(/\r?\n/)
+    .some((line) => BREAKING_FOOTER_RE.test(line.trim()))
+}
+
+/** True when the message subject carries the `!` breaking marker. */
+function hasBreakingBang(message) {
+  const match = firstLine(message).match(HEADER_RE)
+  return Boolean(match && match[3])
+}
+
 function analyzeCommit(message) {
   const text = String(message ?? '')
   if (text.trim() === '') {
@@ -68,9 +92,8 @@ function analyzeCommit(message) {
   }
 
   const result = validate(text)
-  const hasBreakingFooter = text.split(/\r?\n/).some((line) => BREAKING_FOOTER_RE.test(line.trim()))
 
-  if (hasBreakingFooter) {
+  if (hasBreakingFooter(text)) {
     return { ...result, bumpLevel: 'major' }
   }
 
@@ -131,16 +154,39 @@ function extractVersion(tag, scope, prefix) {
   return tag.slice(tagBase(scope, prefix).length)
 }
 
-function findLatestTag(tagOutput, scope, prefix) {
+function compareSemver(a, b) {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i]
+  }
+  return 0
+}
+
+/** Picks the highest stable-semver release tag from a list of tag names; ignores non-matching tags. */
+function latestSemverTag(names, scope, prefix) {
   const base = tagBase(scope, prefix)
-  for (const line of String(tagOutput ?? '').split(/\r?\n/)) {
-    const tag = line.trim()
+  let bestTag = ''
+  let bestVersion = null
+
+  for (const name of names) {
+    const tag = String(name ?? '').trim()
     if (!tag.startsWith(base)) continue
 
-    const version = tag.slice(base.length)
-    if (isValidSemver(version)) return tag
+    let version
+    try {
+      version = parseSemver(tag.slice(base.length))
+    } catch {
+      continue
+    }
+    if (!bestVersion || compareSemver(version, bestVersion) > 0) {
+      bestTag = tag
+      bestVersion = version
+    }
   }
-  return ''
+  return bestTag
+}
+
+function findLatestTag(tagOutput, scope, prefix) {
+  return latestSemverTag(String(tagOutput ?? '').split(/\r?\n/), scope, prefix)
 }
 
 function formatTags(version, scope, prefix) {
@@ -274,6 +320,9 @@ module.exports = {
   firstLine,
   findLatestTag,
   formatTags,
+  hasBreakingBang,
+  hasBreakingFooter,
+  latestSemverTag,
   maxBump,
   parseCommitLog,
   parsePaths,

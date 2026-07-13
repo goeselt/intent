@@ -10,6 +10,7 @@ const {
   extractVersion,
   findLatestTag,
   formatTags,
+  latestSemverTag,
   maxBump,
   parseCommitLog,
   parsePaths,
@@ -27,6 +28,9 @@ test('analyzeCommit maps conventional commits to bump levels', () => {
     ['feat(api)!: drop legacy endpoint', 'major'],
     ['fix: update\n\nBREAKING CHANGE: new format', 'major'],
     ['fix: update\n\nBREAKING-CHANGE: new format', 'major'],
+    ['fix: update\n\nBREAKING CHANGE #42', 'major'],
+    // "BREAKING CHANGES" (plural, no separator) is not a footer; only the fix subject counts.
+    ['fix: update\n\nBREAKING CHANGES ahead', 'patch'],
     ['docs: update readme', 'none'],
     ['chore: update deps', 'none'],
     ['feature: add alias support', 'none'],
@@ -60,16 +64,19 @@ test('validate accepts only canonical PR titles', () => {
   })
 })
 
-test('validate rejects uppercase conventional commit types', () => {
+test('validate rejects uppercase conventional commit types with a lowercase hint', () => {
   assert.deepEqual(validate('FEAT: add login'), {
     valid: false,
     bumpLevel: null,
-    errors: [
-      'title does not match <type>[scope][!]: <description>',
-      'got: FEAT: add login',
-      'allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test',
-    ],
+    errors: ['type "FEAT" must be lowercase: use "feat"', 'got: FEAT: add login'],
   })
+  assert.deepEqual(validate('Fix(auth)!: drop endpoint'), {
+    valid: false,
+    bumpLevel: null,
+    errors: ['type "Fix" must be lowercase: use "fix"', 'got: Fix(auth)!: drop endpoint'],
+  })
+  // Unknown types keep the generic format error even when only the casing differs.
+  assert.match(validate('Feature: add login').errors[0], /does not match/)
 })
 
 test('maxBump returns the highest bump', () => {
@@ -93,13 +100,21 @@ test('applyBump increments semantic versions', () => {
   assert.equal(applyBump('1.2.3', 'none'), '1.2.3')
 })
 
-test('findLatestTag returns first matching stable semver tag', () => {
+test('findLatestTag returns the highest stable semver tag', () => {
   assert.equal(findLatestTag('v2.0.0\nv1.0.0\n', '', 'v'), 'v2.0.0')
   assert.equal(findLatestTag('tool/v1.2.0\ntool/v1.1.0\n', 'tool', 'v'), 'tool/v1.2.0')
   assert.equal(findLatestTag('v2.0.0-beta\nv1.0.0\n', '', 'v'), 'v1.0.0')
   assert.equal(findLatestTag('v9007199254740992.0.0\nv1.0.0\n', '', 'v'), 'v1.0.0')
   assert.equal(findLatestTag('1.2.0\n1.1.0\n', '', ''), '1.2.0')
   assert.equal(findLatestTag('other\n', '', 'v'), '')
+  // Independent of input order, so a non-version-sorted tag list cannot resolve a wrong base version.
+  assert.equal(findLatestTag('v1.9.0\nv1.10.0\n', '', 'v'), 'v1.10.0')
+})
+
+test('latestSemverTag picks the highest release tag from unsorted API tag names', () => {
+  assert.equal(latestSemverTag(['v1.2.0', 'v1.10.0', 'not-a-release', undefined], '', 'v'), 'v1.10.0')
+  assert.equal(latestSemverTag(['cli/v2.0.0', 'v9.9.9'], 'cli', 'v'), 'cli/v2.0.0')
+  assert.equal(latestSemverTag([], '', 'v'), '')
 })
 
 test('extractVersion strips scope and prefix', () => {

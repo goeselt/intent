@@ -1,51 +1,7 @@
 'use strict'
 
 const { bumpGt, firstLine } = require('./version.js')
-
-function text(value) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .replace(/`/g, "'")
-    .trim()
-}
-
-function code(value) {
-  return `\`${text(value)}\``
-}
-
-function escapeTablePipes(value) {
-  return String(value).split('|').join('\\|')
-}
-
-function cell(value, maxLen) {
-  let rendered = text(value)
-  if (maxLen && rendered.length > maxLen) rendered = `${rendered.slice(0, maxLen - 1)}...`
-  return code(escapeTablePipes(rendered))
-}
-
-function hasBreakingFooter(message) {
-  return String(message ?? '')
-    .split(/\r?\n/)
-    .some((line) => /^BREAKING[ -]CHANGE:/.test(line.trim()))
-}
-
-function hasBreakingBang(message) {
-  return /^([a-z]+)(\([^)]+\))?!: /.test(firstLine(message))
-}
-
-function bumpReason(message, bumpLevel) {
-  if (bumpLevel === 'major') {
-    const bang = hasBreakingBang(message)
-    const footer = hasBreakingFooter(message)
-    if (bang && footer) return 'contains `!` and a `BREAKING CHANGE` footer'
-    if (bang) return 'contains `!`'
-    if (footer) return 'contains a `BREAKING CHANGE` footer'
-    return 'marks a breaking change'
-  }
-  if (bumpLevel === 'minor') return '`feat:` means new functionality'
-  if (bumpLevel === 'patch') return '`fix:` or `perf:` means a patch change'
-  return '--'
-}
+const { bumpReason, cell, code, shortSha } = require('./render.js')
 
 function titleFix() {
   return 'Edit the PR title in GitHub to use `<type>[scope][!]: <description>`, for example `feat: add login` or `fix(auth)!: remove deprecated endpoint`.'
@@ -77,8 +33,8 @@ function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommit
       '',
       '**How to fix:**',
       `Intent found a release intent mismatch: the PR title declares ${code(titleResult.bumpLevel)}, but one or more commits imply ${code(maxCommitBump)}.`,
-      `If the commit message is correct, update the PR title to declare ${code(maxCommitBump)}. If a flagged commit message overstates the change, rewrite that commit message so it no longer implies a higher bump.`,
-      'For squash merges, also make sure the final squash commit message matches the intended bump.',
+      `If the flagged commit message is correct, update the PR title to declare ${code(maxCommitBump)}. If it overstates the change, rewrite it so it no longer implies a higher bump.`,
+      'With merge or rebase merges, commits land on the default branch as written; with squash merges that use the PR title as the squash commit title, only `BREAKING CHANGE:` footers keep their release effect.',
     )
   }
 
@@ -88,9 +44,10 @@ function buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommit
       const bump = commitResult.bumpLevel ?? 'none'
       const marker = titleResult.valid && bumpGt(bump, titleResult.bumpLevel) ? ' (conflict)' : ''
       lines.push(
-        `| ${code(String(sha ?? '').slice(0, 7))} | ${cell(firstLine(message), 72)} | ${code(
-          `${bump}${marker}`,
-        )} | ${bumpReason(message, bump)} |`,
+        `| ${code(shortSha(sha))} | ${cell(firstLine(message), 72)} | ${code(`${bump}${marker}`)} | ${bumpReason(
+          message,
+          bump,
+        )} |`,
       )
     }
     if (commitAnalysis.length > 25) {

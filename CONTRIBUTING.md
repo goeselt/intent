@@ -11,6 +11,7 @@ Pure Node.js standard library -- no runtime dependencies, no build step. The sou
 | `src/version.js` | Conventional Commit parsing, PR bump validation, tag/pathspec helpers, version resolving. |
 | `src/comment.js` | Markdown PR comment rendering and PR-comment sanitization.                                |
 | `src/summary.js` | GitHub job summary rendering. Pure formatting only; no filesystem writes.                 |
+| `src/render.js`  | Markdown helpers shared by comment and summary rendering, including sanitization.         |
 | `src/github.js`  | GitHub REST calls: list PR commits, resolve posting identity, upsert comment.             |
 
 `pull_request` events run PR validation only; all other events run version resolution only. Push mode requires
@@ -24,6 +25,9 @@ If you change:
 - Conventional Commit rules or bump semantics, update `src/version.js` and `src/version.test.js`.
 - PR comment wording or Markdown tables, update `src/comment.js` and `src/comment.test.js`.
 - Job summary wording, update `src/summary.js` and `src/summary.test.js`.
+- Shared Markdown sanitization or bump-reason wording, update `src/render.js` (covered by the comment and summary
+  tests).
+- User-visible behavior in a way worth demonstrating, add or adjust a scenario in `src/integration.test.js`.
 - GitHub API behavior or sticky-comment matching, update `src/github.js` and `src/github.test.js`.
 - Inputs, outputs, event-mode wiring, logs, or exit behavior, update `src/index.js`, `src/index.test.js`, `action.yml`,
   and usually `README.md`.
@@ -64,6 +68,12 @@ Fast path:
 ```bash
 npm test
 ```
+
+Unit tests in `src/` stub all Git and GitHub access. `test/integration.test.js` is an executable behavior catalog on top
+of that: every scenario prints its use case (PR guard or `on: push` version resolution, merge settings, inputs) and
+Intent's response (PR comment, verdict, action outputs) as test diagnostics, so the test run doubles as readable
+documentation of how Intent behaves in which situation. PR-guard scenarios use in-memory GitHub API fakes; version
+scenarios run against a throwaway local Git repository (no network) and skip themselves when `git` is not installed.
 
 Lint:
 
