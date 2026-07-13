@@ -24,7 +24,8 @@ Use Intent when release decisions should be explicit, reviewable, and consistent
 Intent covers two complementary jobs. Use both together for a complete release pipeline.
 
 **PR Guard** -- validates the PR title and checks that no commit requires a higher bump than the title promises. Posts
-an explanatory comment on the PR only when something needs attention.
+an explanatory comment on the PR only when something needs attention, and updates that comment to the resolved state
+once the check passes again.
 
 When a PR comment is posted, Intent also includes release context from the default branch when relevant: the current
 default-branch bump since the latest matching release tag, and whether this PR would raise the projected next release.

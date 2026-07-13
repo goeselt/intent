@@ -106,11 +106,18 @@ without running tests.
 
 `pr-comment` controls when Intent posts a sticky comment on the PR:
 
-| Value                | Behavior                                                                          |
-| -------------------- | --------------------------------------------------------------------------------- |
-| `failures` (default) | Comments only when the PR author needs to act.                                    |
-| `true` / `always`    | Creates or updates a sticky comment on every run.                                 |
-| `false` / `never`    | No PR comment; validation results appear in annotations and the job summary only. |
+| Value                | Behavior                                                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `failures` (default) | Comments only when the PR author needs to act. Once the check passes again, an earlier problem comment is updated to the resolved state. |
+| `true` / `always`    | Creates or updates a sticky comment on every run.                                                                                        |
+| `false` / `never`    | No PR comment; validation results appear in annotations and the job summary only.                                                        |
+
+On a release intent mismatch, the comment explains which commit signals reach the default branch for each merge method
+-- with a merge commit or rebase merge every commit lands as written, while a squash merge that uses the PR title as the
+squash commit title only carries `BREAKING CHANGE:` footers into the squash commit body -- and includes step-by-step
+instructions for rewriting a commit message. When the event payload exposes the repository's merge settings (this
+depends on the token's access level), the guidance is tailored to the allowed merge methods; whether the check passes or
+fails never depends on those settings.
 
 ### Squash Merge Commit Titles
 

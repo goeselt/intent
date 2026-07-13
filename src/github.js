@@ -181,10 +181,10 @@ async function getBranchCommits(token, repo, branch, maxCommits = MAX_RELEASE_CO
   return commits
 }
 
-async function upsertComment(token, repo, prNumber, marker, body, generatedSentinels = []) {
+/** Finds the action's own sticky comment on the PR, or null when none exists. */
+async function findMarkerComment(token, repo, prNumber, marker, generatedSentinels = []) {
   const authorLogin = await authenticatedLogin(token)
 
-  // Find existing bot comment
   let existing = null
   let page = 1
   for (;;) {
@@ -194,6 +194,11 @@ async function upsertComment(token, repo, prNumber, marker, body, generatedSenti
     if (existing || batch.length < 100) break
     page++
   }
+  return existing
+}
+
+async function upsertComment(token, repo, prNumber, marker, body, generatedSentinels = []) {
+  const existing = await findMarkerComment(token, repo, prNumber, marker, generatedSentinels)
 
   if (existing) {
     // Skip the write when nothing changed. Avoids a redundant comment edit,
@@ -215,6 +220,7 @@ module.exports = {
   authenticatedLogin,
   commentMatches,
   compareCommits,
+  findMarkerComment,
   getBranchCommits,
   getPRCommits,
   getRepositoryTags,

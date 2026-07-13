@@ -11,6 +11,7 @@ const {
   describeReservedTagsSkipped,
   escapeCommandValue,
   parseCommentMode,
+  repoMergeSettings,
   runPullRequest,
   runVersion,
   setOutput,
@@ -185,6 +186,75 @@ test('describeReservedTagsSkipped explains the skipped tags and chosen alternati
   assert.equal(describeReservedTagsSkipped({ reservedTagsSkipped: [], releaseTag: 'v1.2.4' }), '')
 })
 
+test('repoMergeSettings reads best-effort merge settings from the event payload', () => {
+  assert.equal(repoMergeSettings({}), null)
+  assert.equal(repoMergeSettings({ repository: { full_name: 'a/b' } }), null)
+
+  assert.deepEqual(
+    repoMergeSettings({
+      repository: {
+        allow_squash_merge: true,
+        allow_merge_commit: false,
+        allow_rebase_merge: false,
+        squash_merge_commit_title: 'PR_TITLE',
+      },
+    }),
+    { allowSquashMerge: true, allowMergeCommit: false, allowRebaseMerge: false, squashCommitTitle: 'PR_TITLE' },
+  )
+
+  // Falls back to the base repository object and rejects non-enum squash title values.
+  assert.deepEqual(
+    repoMergeSettings({
+      repository: { full_name: 'a/b' },
+      pull_request: {
+        base: { repo: { allow_squash_merge: false, allow_merge_commit: true, squash_merge_commit_title: '::evil' } },
+      },
+    }),
+    { allowSquashMerge: false, allowMergeCommit: true, allowRebaseMerge: false, squashCommitTitle: '' },
+  )
+})
+
+test('runPullRequest tailors the conflict comment to payload merge settings', async (t) => {
+  // The conflict path ends in process.exit(1); neutralize it so the test process survives.
+  const exitCodes = []
+  t.mock.method(process, 'exit', (code) => {
+    exitCodes.push(code)
+  })
+  let commentBody = ''
+
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload({
+          repository: {
+            full_name: 'goeselt/example',
+            default_branch: 'main',
+            allow_squash_merge: true,
+            allow_merge_commit: false,
+            allow_rebase_merge: false,
+            squash_merge_commit_title: 'PR_TITLE',
+          },
+          pull_request: { number: 123, title: 'fix: correct release' },
+        }),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () => Promise.resolve([{ sha: 'abc123456789', commit: { message: 'feat: new thing' } }]),
+        ...noReleaseContext(),
+        upsert: (_token, _repo, _prNumber, _marker, body) => {
+          commentBody = body
+          return Promise.resolve()
+        },
+      }),
+    ),
+  )
+
+  assert.deepEqual(exitCodes, [1])
+  assert.match(output, /result=fail reason=bump-conflict/)
+  assert.match(output, /merge-settings squash=true merge=false rebase=false squash-title=PR_TITLE/)
+  assert.match(commentBody, /only allows squash merges/)
+  assert.match(commentBody, /will not reach the default branch/)
+})
+
 test('runPullRequest fails closed when github-token is missing', async () => {
   await silenceStdout(async () => {
     await assert.rejects(
@@ -260,6 +330,7 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
         postComment: 'failures',
         getCommits: () => Promise.resolve([]),
         ...noReleaseContext(),
+        findExisting: () => Promise.resolve(null),
         upsert: () => {
           commentCalled = true
           return Promise.resolve()
@@ -278,6 +349,76 @@ test('runPullRequest skips successful PR comments in failures mode and writes a 
     }
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('runPullRequest resolves a stale failure comment once the check passes in failures mode', async () => {
+  let commentBody = ''
+
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload(),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () => Promise.resolve([]),
+        ...noReleaseContext(),
+        findExisting: () => Promise.resolve({ id: 7, body: '<!-- intent -->\n> [!CAUTION]\nold failure' }),
+        upsert: (_token, _repo, _prNumber, _marker, body) => {
+          commentBody = body
+          return Promise.resolve()
+        },
+      }),
+    ),
+  )
+
+  assert.match(output, /comment=updated reason=resolve-stale-comment/)
+  assert.match(output, /result=pass/)
+  assert.match(commentBody, /sets the intended release to a \*\*`patch`\*\* bump/)
+  assert.ok(!commentBody.includes('[!CAUTION]'), 'resolved comment must not keep the failure alert')
+})
+
+test('runPullRequest leaves an already-resolved comment untouched in failures mode', async () => {
+  let commentCalled = false
+
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload(),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () => Promise.resolve([]),
+        ...noReleaseContext(),
+        findExisting: () => Promise.resolve({ id: 7, body: '<!-- intent -->\n> [!NOTE]\nall good' }),
+        upsert: () => {
+          commentCalled = true
+          return Promise.resolve()
+        },
+      }),
+    ),
+  )
+
+  assert.equal(commentCalled, false)
+  assert.match(output, /comment=skipped reason=pr-comment-failures-pass/)
+})
+
+test('runPullRequest degrades quietly when the stale-comment lookup fails', async () => {
+  const output = await withoutStepSummary(() =>
+    captureStdout(() =>
+      runPullRequest({
+        payload: payload(),
+        token: 'token',
+        postComment: 'failures',
+        getCommits: () => Promise.resolve([]),
+        ...noReleaseContext(),
+        findExisting: () => Promise.reject(new Error('GitHub API GET /repos/x/y --> HTTP 403: forbidden')),
+        upsert: () => Promise.resolve(),
+      }),
+    ),
+  )
+
+  assert.match(output, /comment=refresh-skipped/)
+  assert.match(output, /result=pass/)
+  assert.ok(!output.includes('::warning'), 'best-effort refresh must not warn')
 })
 
 test('runPullRequest comments and warns when a single commit could drop the PR title bump', async () => {

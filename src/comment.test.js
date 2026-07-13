@@ -2,7 +2,14 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { buildComment, buildFooter, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
+const {
+  buildComment,
+  buildFooter,
+  commentNeedsResolution,
+  GENERATED_FOOTER,
+  GENERATED_HEADER,
+  MARKER,
+} = require('./comment.js')
 
 function makeCommit(sha, message, bumpLevel, valid = true) {
   return { sha, message, result: { valid, bumpLevel, errors: [] } }
@@ -122,9 +129,79 @@ test('conflict: heading, both bump levels, and fix paths present', () => {
   assert.ok(body.includes('Release Intent Mismatch'), 'heading missing')
   assert.ok(body.includes('major'), 'major bump level missing')
   assert.ok(body.includes('patch'), 'title bump level missing')
-  assert.ok(body.includes('If the commit message is correct'), 'title fix path missing')
+  assert.ok(body.includes('If the flagged commit message is correct'), 'title fix path missing')
   assert.ok(body.includes('overstates the change'), 'commit rewrite path missing')
-  assert.ok(body.includes('squash commit message'), 'squash merge guidance missing')
+})
+
+// -- conflict rationale and rewrite how-to ----------------------------------------------------------------------------
+
+function conflictParams(overrides = {}) {
+  return {
+    titleResult: { valid: true, bumpLevel: 'patch', errors: [] },
+    title: 'fix: minor correction',
+    commitAnalysis: [makeCommit('abc1234567', 'feat: new thing', 'minor')],
+    maxCommitBump: 'minor',
+    ...overrides,
+  }
+}
+
+test('conflict: unknown merge settings explain both merge behaviours and the strongest interpretation', () => {
+  const body = buildComment(conflictParams())
+  assert.ok(body.includes('### Why this blocks'), 'rationale section missing')
+  assert.ok(body.includes('**Merge commit / rebase merge:**'), 'verbatim merge rationale missing')
+  assert.ok(body.includes('**Squash merge**'), 'squash merge rationale missing')
+  assert.ok(body.includes('strongest interpretation'), 'unknown-settings rationale missing')
+  assert.ok(body.includes('<summary>How to rewrite a commit message</summary>'), 'rewrite how-to missing')
+  assert.ok(body.includes('git commit --amend'), 'amend command missing')
+  assert.ok(body.includes('git push --force-with-lease'), 'force-push command missing')
+})
+
+test('conflict: squash-only repo with PR title notes that commit subjects do not reach the default branch', () => {
+  const body = buildComment(
+    conflictParams({
+      mergeSettings: {
+        allowSquashMerge: true,
+        allowMergeCommit: false,
+        allowRebaseMerge: false,
+        squashCommitTitle: 'PR_TITLE',
+      },
+    }),
+  )
+  assert.ok(body.includes('only allows squash merges'), 'squash-only rationale missing')
+  assert.ok(body.includes('will not reach the default branch'), 'inert header signal note missing')
+  assert.ok(!body.includes('**Merge commit / rebase merge:**'), 'verbatim bullet should be omitted for squash-only')
+})
+
+test('conflict: squash-only repo still warns when a BREAKING CHANGE footer survives the squash', () => {
+  const body = buildComment(
+    conflictParams({
+      commitAnalysis: [makeCommit('abc1234567', 'fix: change\n\nBREAKING CHANGE: new format', 'major')],
+      maxCommitBump: 'major',
+      mergeSettings: {
+        allowSquashMerge: true,
+        allowMergeCommit: false,
+        allowRebaseMerge: false,
+        squashCommitTitle: 'PR_TITLE',
+      },
+    }),
+  )
+  assert.ok(body.includes('copied into the squash commit body'), 'footer survival note missing')
+  assert.ok(body.includes('Remove the footer if the breaking change is not real'), 'footer fix guidance missing')
+})
+
+test('conflict: repo without squash merges states that commits land as written', () => {
+  const body = buildComment(
+    conflictParams({
+      mergeSettings: {
+        allowSquashMerge: false,
+        allowMergeCommit: true,
+        allowRebaseMerge: true,
+        squashCommitTitle: '',
+      },
+    }),
+  )
+  assert.ok(body.includes('does not allow squash merges'), 'no-squash rationale missing')
+  assert.ok(!body.includes('**Squash merge**'), 'squash bullet should be omitted when squash is disabled')
 })
 
 test('conflict: conflicting commit flagged with warning in table', () => {
@@ -307,6 +384,35 @@ test('success: no details section when no commits provided', () => {
     maxCommitBump: 'none',
   })
   assert.ok(!body.includes('<details>'), 'unexpected details section')
+})
+
+// -- stale comment detection ------------------------------------------------------------------------------------------
+
+test('commentNeedsResolution matches failure and squash-warning comments, not success comments', () => {
+  const failing = buildComment({
+    titleResult: { valid: false, bumpLevel: null, errors: ['invalid title'] },
+    title: 'WIP',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+  })
+  const warned = buildComment({
+    titleResult: { valid: true, bumpLevel: 'major', errors: [] },
+    title: 'fix!: update',
+    commitAnalysis: [makeCommit('abc1234567', 'fix: update', 'patch')],
+    maxCommitBump: 'patch',
+    squashTitleWarning: { titleBump: 'major', commitBump: 'patch' },
+  })
+  const passing = buildComment({
+    titleResult: { valid: true, bumpLevel: 'minor', errors: [] },
+    title: 'feat: add login',
+    commitAnalysis: [],
+    maxCommitBump: 'none',
+  })
+
+  assert.equal(commentNeedsResolution(failing), true)
+  assert.equal(commentNeedsResolution(warned), true)
+  assert.equal(commentNeedsResolution(passing), false)
+  assert.equal(commentNeedsResolution(), false)
 })
 
 // -- commit table -----------------------------------------------------------------------------------------------------

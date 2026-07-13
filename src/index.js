@@ -3,9 +3,10 @@
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
-const { buildComment, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
+const { buildComment, commentNeedsResolution, GENERATED_FOOTER, GENERATED_HEADER, MARKER } = require('./comment.js')
 const {
   compareCommits,
+  findMarkerComment,
   getBranchCommits,
   getPRCommits,
   getRepositoryTags,
@@ -20,11 +21,11 @@ const {
   bumpGt,
   findLatestTag,
   firstLine,
+  latestSemverTag,
   maxBump,
   parseCommitLog,
   parsePaths,
   parseReservedTags,
-  parseSemver,
   resolveVersion,
   validate,
 } = require('./version.js')
@@ -173,36 +174,6 @@ function describeReservedTagsSkipped(result) {
   return `${prefix}; using ${JSON.stringify(result.releaseTag)} instead`
 }
 
-function releaseTagBase(scope, prefix) {
-  return scope ? `${scope}/${prefix}` : prefix
-}
-
-function latestReleaseTag(tags, scope, prefix) {
-  const base = releaseTagBase(scope, prefix)
-  const candidates = []
-
-  for (const tag of tags) {
-    const name = String(tag?.name ?? '')
-    if (!name.startsWith(base)) continue
-
-    const version = name.slice(base.length)
-    try {
-      candidates.push({ name, version: parseSemver(version) })
-    } catch {
-      // Ignore non-semver tags in the same namespace, matching push-mode behaviour.
-    }
-  }
-
-  candidates.sort((a, b) => {
-    for (let i = 0; i < 3; i++) {
-      if (a.version[i] !== b.version[i]) return b.version[i] - a.version[i]
-    }
-    return 0
-  })
-
-  return candidates[0]?.name ?? ''
-}
-
 async function resolvePullRequestReleaseContext({
   token,
   repo,
@@ -216,7 +187,11 @@ async function resolvePullRequestReleaseContext({
   if (!defaultBranch) return null
 
   const tags = await getTags(token, repo)
-  const previousTag = latestReleaseTag(tags, scope, prefix)
+  const previousTag = latestSemverTag(
+    tags.map((tag) => tag?.name),
+    scope,
+    prefix,
+  )
   const commits = previousTag
     ? await compare(token, repo, previousTag, defaultBranch)
     : await getCommitsForBranch(token, repo, defaultBranch)
@@ -230,6 +205,25 @@ async function resolvePullRequestReleaseContext({
   )
 
   return { defaultBranchBump }
+}
+
+// Merge settings from the event payload, when the webhook serialization includes them (that depends on the
+// token's access level, so treat them as best-effort). They only tailor PR-comment guidance; whether the
+// check passes or fails never depends on them.
+function repoMergeSettings(payload) {
+  for (const repo of [payload.repository, payload.pull_request?.base?.repo]) {
+    if (repo && typeof repo.allow_squash_merge === 'boolean') {
+      return {
+        allowSquashMerge: repo.allow_squash_merge,
+        allowMergeCommit: repo.allow_merge_commit === true,
+        allowRebaseMerge: repo.allow_rebase_merge === true,
+        squashCommitTitle: ['PR_TITLE', 'COMMIT_OR_PR_TITLE'].includes(repo.squash_merge_commit_title)
+          ? repo.squash_merge_commit_title
+          : '',
+      }
+    }
+  }
+  return null
 }
 
 function squashTitleWarning(titleResult, commitAnalysis, maxCommitBump) {
@@ -261,6 +255,7 @@ async function runPullRequest({
   compare = compareCommits,
   getCommitsForBranch = getBranchCommits,
   upsert = upsertComment,
+  findExisting = findMarkerComment,
   releaseScope = '',
   tagPrefix = 'v',
 }) {
@@ -274,13 +269,21 @@ async function runPullRequest({
   const title = pr.title ?? ''
   const prNumber = pr.number
   validatePRNumber(prNumber)
-  const defaultBranch = payload.repository?.default_branch ?? pr.base?.repo?.default_branch ?? pr.base?.ref ?? ''
+  const defaultBranch = payload.repository?.default_branch ?? pr.base?.repo?.default_branch ?? ''
   const titleResult = validate(title)
   const commentMode = parseCommentMode(postComment)
+  const mergeSettings = repoMergeSettings(payload)
 
   log(`mode=pull-request repository=${repo} pr=${prNumber} pr-comment=${commentMode}`)
   log(`pr-title=${JSON.stringify(title)}`)
   log(`title-valid=${titleResult.valid} title-bump=${titleResult.bumpLevel ?? '-'}`)
+  if (mergeSettings) {
+    log(
+      `merge-settings squash=${mergeSettings.allowSquashMerge} merge=${mergeSettings.allowMergeCommit} rebase=${mergeSettings.allowRebaseMerge} squash-title=${mergeSettings.squashCommitTitle || '-'}`,
+    )
+  } else {
+    log('merge-settings=unknown')
+  }
 
   if (!token) {
     throw new Error('github-token is required for pull_request validation')
@@ -312,42 +315,41 @@ async function runPullRequest({
     log('squash-title-warning=true')
   }
 
+  const fetchReleaseContext = async () => {
+    try {
+      return await resolvePullRequestReleaseContext({
+        token,
+        repo,
+        defaultBranch,
+        scope: releaseScope,
+        prefix: tagPrefix,
+        getTags,
+        compare,
+        getCommitsForBranch,
+      })
+    } catch (err) {
+      log(`release-context=skipped reason=${JSON.stringify(err.message)}`)
+      return null
+    }
+  }
+  const commentBody = (releaseContext) =>
+    buildComment({
+      titleResult,
+      title,
+      commitAnalysis,
+      maxCommitBump,
+      releaseContext,
+      squashTitleWarning: titleWarning,
+      mergeSettings,
+    })
+
   const shouldPostComment =
     commentMode === 'always' || (commentMode === 'failures' && (!titleResult.valid || hasConflict || titleWarning))
   let commentStatus
   if (shouldPostComment) {
     try {
-      let releaseContext = null
-      try {
-        releaseContext = await resolvePullRequestReleaseContext({
-          token,
-          repo,
-          defaultBranch,
-          scope: releaseScope,
-          prefix: tagPrefix,
-          getTags,
-          compare,
-          getCommitsForBranch,
-        })
-      } catch (err) {
-        log(`release-context=skipped reason=${JSON.stringify(err.message)}`)
-      }
-
-      await upsert(
-        token,
-        repo,
-        prNumber,
-        MARKER,
-        buildComment({
-          titleResult,
-          title,
-          commitAnalysis,
-          maxCommitBump,
-          releaseContext,
-          squashTitleWarning: titleWarning,
-        }),
-        [GENERATED_HEADER, GENERATED_FOOTER],
-      )
+      const releaseContext = await fetchReleaseContext()
+      await upsert(token, repo, prNumber, MARKER, commentBody(releaseContext), [GENERATED_HEADER, GENERATED_FOOTER])
       log('comment=updated')
       commentStatus = 'updated'
     } catch (err) {
@@ -355,10 +357,28 @@ async function runPullRequest({
       log('comment=failed')
       commentStatus = 'failed'
     }
+  } else if (commentMode === 'never') {
+    log('comment=skipped reason=pr-comment-false')
+    commentStatus = 'disabled'
   } else {
-    const reason = commentMode === 'never' ? 'pr-comment-false' : 'pr-comment-failures-pass'
-    log(`comment=skipped reason=${reason}`)
-    commentStatus = commentMode === 'never' ? 'disabled' : 'not needed'
+    // failures mode on a passing run: a previous failing run may have left a CAUTION or warning comment behind.
+    // Refresh it to the resolved state so the PR does not keep showing an outdated problem report. When no such
+    // comment exists, stay silent and make no API writes. This is best-effort housekeeping -- a token that cannot
+    // read comments must not produce a warning on every passing run.
+    commentStatus = 'not needed'
+    try {
+      const existing = await findExisting(token, repo, prNumber, MARKER, [GENERATED_HEADER, GENERATED_FOOTER])
+      if (existing && commentNeedsResolution(existing.body)) {
+        const releaseContext = await fetchReleaseContext()
+        await upsert(token, repo, prNumber, MARKER, commentBody(releaseContext), [GENERATED_HEADER, GENERATED_FOOTER])
+        log('comment=updated reason=resolve-stale-comment')
+        commentStatus = 'updated'
+      } else {
+        log('comment=skipped reason=pr-comment-failures-pass')
+      }
+    } catch (err) {
+      log(`comment=refresh-skipped reason=${JSON.stringify(firstLine(err.message))}`)
+    }
   }
 
   appendStepSummary(buildPullRequestSummary({ title, titleResult, commitAnalysis, maxCommitBump, commentStatus }))
@@ -498,6 +518,7 @@ module.exports = {
   escapeCommandValue,
   main,
   parseCommentMode,
+  repoMergeSettings,
   runPullRequest,
   runVersion,
   setOutput,
